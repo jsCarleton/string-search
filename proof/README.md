@@ -17,7 +17,7 @@ reduction relation.
 
 ```sh
 eval $(opam env --switch=WasmCert-Coq)
-coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && coqc MemLemmas.v
+coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && coqc MemLemmas.v && coqc BuildLps.v
 ```
 
 ## The plan
@@ -81,15 +81,22 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        distinct types from separate functor instantiations), and
        non-interference outside a store's range
        (`mem_lookup_after_store_i32_disjoint`).
-     - **Instruction-level reduction lemmas** *(not started)* — lifting
-       `CoreLemmas.v`'s composition lemma through each concrete
-       instruction `build_lps` uses (locals get/set, i32 const/binop/
-       relop/testop, `block`/`loop`/`br_if`/`br`/`if`), using
-       `MemLemmas.v` for the load/store steps.
-     - **The loop induction itself** *(not started)* — one per-iteration
-       lemma (chaining the instruction-level steps above) proved by
+     - **Instruction-level reduction and the prologue** (`BuildLps.v`,
+       started) — lifting `CoreLemmas.v`'s composition lemmas through
+       each concrete instruction `build_lps` uses. `build_lps_es_split`
+       anchors to the actual parsed body (`vm_compute`, not a
+       transcription); `build_lps_patLen_zero` proves the early-return
+       case (`patLen = 0`) fully, including hand-constructing the
+       `lholed`/`lfill` witness for `rs_return` at the right label
+       nesting depth -- the first proof of *actual kmp.wasm code*
+       reducing under the real semantics, not just supporting
+       infrastructure.
+     - **The main loop** *(not started)* — same techniques
+       (`block`/`loop`/`br_if`/`br`/`if`, `MemLemmas.v` for the load/
+       store steps), chained through one per-iteration lemma proved by
        strong induction on the KMP loop's own measure, mirroring
-       `KMPFailureRec.v`'s `cand_fuel` structure step for step.
+       `KMPFailureRec.v`'s `cand_fuel` structure step for step. This is
+       most of what remains for `build_lps`.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -119,8 +126,8 @@ loop-invariant induction.
 | `KMPSpec.v` | done |
 | `KMPFailureRec.v` (failure-recurrence math, step 4a) | done |
 | `MemLemmas.v` (memory reasoning, step 4b) | done |
-| Instruction-level reduction lemmas (step 4b) | not started |
-| `build_lps` loop induction (step 4b) | not started |
+| `BuildLps.v`: prologue / early return (step 4b) | done |
+| `build_lps` main loop induction (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
