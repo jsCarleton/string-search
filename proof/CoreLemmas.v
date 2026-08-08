@@ -82,3 +82,40 @@ Lemma reduce_simple_reduce : forall hs s f es es',
   reduce_simple es es' ->
   reduce hs s f es hs s f es'.
 Proof. move=> *. exact: r_simple. Qed.
+
+(** A single [reduce] step inside a frame lifts to a step of the whole
+    framed configuration (the frame-congruence rule [r_frame]). *)
+Lemma reduce_frame : forall hs s f es hs' s' f' es' n f0,
+  reduce hs s f es hs' s' f' es' ->
+  reduce hs s f0 [:: AI_frame n f es] hs' s' f0 [:: AI_frame n f' es'].
+Proof. move=> *. exact: r_frame. Qed.
+
+(** ... and [reduce_trans] inside a frame lifts to [reduce_trans] of the
+    whole framed configuration, by induction on the closure -- the
+    frame analogue of [reduce_trans_prefix]. *)
+Definition cfg_frame (n: nat) (f0: frame)
+                      (cfg: host_state * store_record * frame * seq administrative_instruction) :=
+  let '(hs, s, f, es) := cfg in (hs, s, f0, [:: AI_frame n f es]).
+
+Lemma reduce_trans_frame : forall cfg cfg' n f0,
+  reduce_trans cfg cfg' ->
+  reduce_trans (cfg_frame n f0 cfg) (cfg_frame n f0 cfg').
+Proof.
+  move=> cfg cfg' n f0 Htrans.
+  induction Htrans as [x y Hstep | x | x y z Hxy IHxy Hyz IHyz].
+  - apply: Relations.Relation_Operators.rt_step.
+    destruct x as [[[hs s] f] es]; destruct y as [[[hs' s'] f'] es'].
+    exact: reduce_frame.
+  - exact: Relations.Relation_Operators.rt_refl.
+  - apply: (Relations.Relation_Operators.rt_trans _ _ _ (cfg_frame n f0 y)).
+    + exact: IHxy.
+    + exact: IHyz.
+Qed.
+
+Lemma reduce_trans_frame' : forall hs s f es hs' s' f' es' n f0,
+  reduce_trans (hs, s, f, es) (hs', s', f', es') ->
+  reduce_trans (hs, s, f0, [:: AI_frame n f es]) (hs', s', f0, [:: AI_frame n f' es']).
+Proof.
+  move=> hs s f es hs' s' f' es' n f0 Htrans.
+  exact: (reduce_trans_frame (hs, s, f, es) (hs', s', f', es') n f0 Htrans).
+Qed.
