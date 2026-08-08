@@ -17,7 +17,7 @@ reduction relation.
 
 ```sh
 eval $(opam env --switch=WasmCert-Coq)
-coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v
+coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v
 ```
 
 ## The plan
@@ -52,12 +52,24 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
      the spec for `build_lps`. `is_lps_unique` confirms this pins down
      a unique value, so it fully specifies the function.
 
-4. **`build_lps` loop correctness** *(in progress)* — prove that
-   executing `build_lps`'s instruction sequence (as parsed in step 1,
-   from a real reduction-relation initial state: pattern bytes in
-   memory, bounded length) reduces, via `reduce_trans`, to a final state
-   whose memory satisfies `is_failure_table` from step 3. By strong
-   induction on the decreasing measure `patLen - i`.
+4. **`build_lps` loop correctness** *(in progress)*, split into two
+   parts:
+   - 4a. **The failure-function recurrence, in pure math** (`KMPFailureRec.v`,
+     done) — independent of WebAssembly entirely: proves the classical
+     fact that justifies the algorithm's backtracking step (falling
+     back to `table[len-1]` on a mismatch rather than recomputing from
+     scratch). Built on a "border chain" lemma (borders of borders) and
+     a fuel-bounded reference recurrence `cand`/`cand_correct` that is
+     proved to compute exactly the `is_lps` spec value at each position,
+     given the loop invariant `is_border` + `ruled_out_above` ("no
+     larger border has been missed yet").
+   - 4b. **The wasm loop implements that recurrence** *(not started)* —
+     show `build_lps`'s actual instruction sequence (as parsed in step
+     1), executed via `reduce_trans` from a real initial configuration
+     (pattern bytes in memory, bounded length), maintains the same
+     `is_border` + `ruled_out_above` invariant at each `loop` iteration
+     and its final memory state matches `cand`'s output, hence (by 4a)
+     `is_failure_table`.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -85,7 +97,8 @@ loop-invariant induction.
 | `KMPBytes.v` | done |
 | `CoreLemmas.v` | done |
 | `KMPSpec.v` | done |
-| `build_lps` correctness | not started |
+| `KMPFailureRec.v` (failure-recurrence math, step 4a) | done |
+| `build_lps` wasm loop correctness (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
