@@ -36,7 +36,7 @@ for convenience/testing.
 
 ## Formal proof
 
-`proof/` contains an in-progress Rocq/Coq proof that this module is
-correct, checked directly against WasmCert-Coq's mechanized WebAssembly
-semantics (not just an abstract model of the algorithm). See
-[`proof/README.md`](proof/README.md) for the plan and current status.
+[`../proof/`](../proof/) contains an in-progress Rocq/Coq proof that this
+module is correct, checked directly against WasmCert-Coq's mechanized
+WebAssembly semantics (not just an abstract model of the algorithm). See
+[`../proof/README.md`](../proof/README.md) for the plan and current status.

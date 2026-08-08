@@ -2,8 +2,8 @@ From Wasm Require Import datatypes binary_format_parser.
 Require Import Strings.Byte.
 Open Scope list_scope.
 
-(** The exact, compiled bytes of ../kmp.wasm (wasm/kmp.wasm in the repo),
-    produced by [wat2wasm kmp.wat -o kmp.wasm]. Embedding the literal binary
+(** The exact, compiled bytes of ../wasm/kmp.wasm, produced by
+    [wat2wasm kmp.wat -o kmp.wasm]. Embedding the literal binary
     (rather than a hand-transcribed instruction list) means every theorem
     proved about [kmp_module] below is a theorem about the actual shipped
     artifact, not a paraphrase of it. *)

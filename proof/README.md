@@ -1,6 +1,6 @@
 # Formal correctness proof of kmp.wasm
 
-A Rocq/Coq proof that `../kmp.wasm` (the compiled KMP module) is correct,
+A Rocq/Coq proof that `../wasm/kmp.wasm` (the compiled KMP module) is correct,
 checked against [WasmCert-Coq](https://github.com/WasmCert/WasmCert-Coq),
 a mechanized formalization of WebAssembly's real reduction semantics —
 not against an abstract model of the algorithm. There is no program
