@@ -1,0 +1,11 @@
+{
+  "name": "kmp-wasm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Knuth-Morris-Pratt string search implemented in WebAssembly",
+  "main": "kmp.js",
+  "scripts": {
+    "build": "wat2wasm kmp.wat -o kmp.wasm",
+    "test": "node kmp.test.js"
+  }
+}
