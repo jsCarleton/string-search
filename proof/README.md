@@ -17,7 +17,7 @@ reduction relation.
 
 ```sh
 eval $(opam env --switch=WasmCert-Coq)
-coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v
+coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && coqc MemLemmas.v
 ```
 
 ## The plan
@@ -63,13 +63,33 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
      proved to compute exactly the `is_lps` spec value at each position,
      given the loop invariant `is_border` + `ruled_out_above` ("no
      larger border has been missed yet").
-   - 4b. **The wasm loop implements that recurrence** *(not started)* —
+   - 4b. **The wasm loop implements that recurrence** *(in progress)* —
      show `build_lps`'s actual instruction sequence (as parsed in step
      1), executed via `reduce_trans` from a real initial configuration
      (pattern bytes in memory, bounded length), maintains the same
      `is_border` + `ruled_out_above` invariant at each `loop` iteration
      and its final memory state matches `cand`'s output, hence (by 4a)
-     `is_failure_table`.
+     `is_failure_table`. Split further:
+     - **Memory reasoning** (`MemLemmas.v`, done) — what
+       `i32.load8_u`/`i32.store`/`i32.load` do to WasmCert-Coq's
+       abstract `Memory` typeclass: single-byte read/write
+       (`write_bytes_in`/`_out`, `load8_u_ok`), the i32 store/load round
+       trip (`store_i32_effect`, `load_i32_after_store` — built from
+       CompCert's type-agnostic `decode_encode_int` plus
+       `Wasm_int.Int32`'s own `repr`/`unsigned` round trip, since
+       `Wasm_int.Int32.int` and CompCert's `Integers.Int.int` are
+       distinct types from separate functor instantiations), and
+       non-interference outside a store's range
+       (`mem_lookup_after_store_i32_disjoint`).
+     - **Instruction-level reduction lemmas** *(not started)* — lifting
+       `CoreLemmas.v`'s composition lemma through each concrete
+       instruction `build_lps` uses (locals get/set, i32 const/binop/
+       relop/testop, `block`/`loop`/`br_if`/`br`/`if`), using
+       `MemLemmas.v` for the load/store steps.
+     - **The loop induction itself** *(not started)* — one per-iteration
+       lemma (chaining the instruction-level steps above) proved by
+       strong induction on the KMP loop's own measure, mirroring
+       `KMPFailureRec.v`'s `cand_fuel` structure step for step.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -98,7 +118,9 @@ loop-invariant induction.
 | `CoreLemmas.v` | done |
 | `KMPSpec.v` | done |
 | `KMPFailureRec.v` (failure-recurrence math, step 4a) | done |
-| `build_lps` wasm loop correctness (step 4b) | not started |
+| `MemLemmas.v` (memory reasoning, step 4b) | done |
+| Instruction-level reduction lemmas (step 4b) | not started |
+| `build_lps` loop induction (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
