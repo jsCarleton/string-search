@@ -119,3 +119,44 @@ Proof.
   move=> hs s f es hs' s' f' es' n f0 Htrans.
   exact: (reduce_trans_frame (hs, s, f, es) (hs', s', f', es') n f0 Htrans).
 Qed.
+
+(** A single [reduce] step inside a single enclosing label lifts to a
+    step of the labelled configuration (via [r_label] at the
+    one-label, empty-prefix/suffix context). *)
+Lemma reduce_label1 : forall hs s f es hs' s' f' es' n lbl,
+  reduce hs s f es hs' s' f' es' ->
+  reduce hs s f [:: AI_label n lbl es] hs' s' f' [:: AI_label n lbl es'].
+Proof.
+  move=> hs s f es hs' s' f' es' n lbl Hred.
+  eapply r_label with (lh := LH_rec [::] n lbl (LH_base [::] [::]) [::]).
+  - exact: Hred.
+  - rewrite /= cats0. reflexivity.
+  - rewrite /= cats0. reflexivity.
+Qed.
+
+Definition cfg_label (n: nat) (lbl: seq administrative_instruction)
+                      (cfg: host_state * store_record * frame * seq administrative_instruction) :=
+  let '(hs, s, f, es) := cfg in (hs, s, f, [:: AI_label n lbl es]).
+
+Lemma reduce_trans_label1 : forall cfg cfg' n lbl,
+  reduce_trans cfg cfg' ->
+  reduce_trans (cfg_label n lbl cfg) (cfg_label n lbl cfg').
+Proof.
+  move=> cfg cfg' n lbl Htrans.
+  induction Htrans as [x y Hstep | x | x y z Hxy IHxy Hyz IHyz].
+  - apply: Relations.Relation_Operators.rt_step.
+    destruct x as [[[hs s] f] es]; destruct y as [[[hs' s'] f'] es'].
+    exact: reduce_label1.
+  - exact: Relations.Relation_Operators.rt_refl.
+  - apply: (Relations.Relation_Operators.rt_trans _ _ _ (cfg_label n lbl y)).
+    + exact: IHxy.
+    + exact: IHyz.
+Qed.
+
+Lemma reduce_trans_label1' : forall hs s f es hs' s' f' es' n lbl,
+  reduce_trans (hs, s, f, es) (hs', s', f', es') ->
+  reduce_trans (hs, s, f, [:: AI_label n lbl es]) (hs', s', f', [:: AI_label n lbl es']).
+Proof.
+  move=> hs s f es hs' s' f' es' n lbl Htrans.
+  exact: (reduce_trans_label1 (hs, s, f, es) (hs', s', f', es') n lbl Htrans).
+Qed.
