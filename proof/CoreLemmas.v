@@ -30,6 +30,21 @@ Proof.
   - reflexivity.
 Qed.
 
+(** As [reduce_prefix], but also keeping a fixed prefix of already-
+    evaluated constant values in place -- e.g. an operand already on the
+    stack, waiting for a binop/relop that hasn't been reached yet. Also
+    via [r_label], now at [LH_base vs suffix] (nonempty [vs]). *)
+Lemma reduce_ctx : forall hs s f vs es hs' s' f' es' suffix,
+  reduce hs s f es hs' s' f' es' ->
+  reduce hs s f (v_to_e_list vs ++ es ++ suffix) hs' s' f' (v_to_e_list vs ++ es' ++ suffix).
+Proof.
+  move=> hs s f vs es hs' s' f' es' suffix Hred.
+  eapply r_label with (lh := LH_base vs suffix).
+  - exact: Hred.
+  - reflexivity.
+  - reflexivity.
+Qed.
+
 (** Append [suffix] to the instruction component of a configuration tuple. *)
 Definition cfg_append (suffix: seq administrative_instruction)
                        (cfg: host_state * store_record * frame * seq administrative_instruction) :=
