@@ -17,7 +17,8 @@ reduction relation.
 
 ```sh
 eval $(opam env --switch=WasmCert-Coq)
-coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && coqc MemLemmas.v && coqc BuildLps.v
+coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
+  coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v
 ```
 
 ## The plan
@@ -91,12 +92,19 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        nesting depth -- the first proof of *actual kmp.wasm code*
        reducing under the real semantics, not just supporting
        infrastructure.
-     - **The main loop** *(not started)* — same techniques
+     - **The main loop** *(in progress)* — same techniques
        (`block`/`loop`/`br_if`/`br`/`if`, `MemLemmas.v` for the load/
        store steps), chained through one per-iteration lemma proved by
        strong induction on the KMP loop's own measure, mirroring
        `KMPFailureRec.v`'s `cand_fuel` structure step for step. This is
-       most of what remains for `build_lps`.
+       most of what remains for `build_lps`. `BuildLpsLoop.v` extracts
+       the loop's exact instruction shape (init sequence, loop body) by
+       `vm_compute` against the real bytecode; the reduction proof
+       itself (entering the loop, then the per-iteration lemma with its
+       two exit paths -- `br_if 1` out of the loop entirely, `br 0` to
+       continue -- each nested inside the match/mismatch `if`/`else`)
+       is the largest remaining chunk of this whole project, comparable
+       in size to everything landed so far.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -127,7 +135,8 @@ loop-invariant induction.
 | `KMPFailureRec.v` (failure-recurrence math, step 4a) | done |
 | `MemLemmas.v` (memory reasoning, step 4b) | done |
 | `BuildLps.v`: prologue / early return (step 4b) | done |
-| `build_lps` main loop induction (step 4b) | not started |
+| `BuildLpsLoop.v`: loop instruction shape, ground truth (step 4b) | done |
+| `build_lps` main loop reduction + induction (step 4b) | in progress |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
