@@ -33,3 +33,10 @@ npm test
 `kmp.js` is a small Node loader (`loadKmp()`) that handles encoding
 strings into memory and exposes a plain `search(text, pattern)` function
 for convenience/testing.
+
+## Formal proof
+
+`proof/` contains an in-progress Rocq/Coq proof that this module is
+correct, checked directly against WasmCert-Coq's mechanized WebAssembly
+semantics (not just an abstract model of the algorithm). See
+[`proof/README.md`](proof/README.md) for the plan and current status.
