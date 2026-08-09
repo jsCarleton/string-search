@@ -21,7 +21,7 @@ coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v &
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
   coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
   coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v && coqc BuildLpsMemTable.v && \
-  coqc BuildLpsInduction.v && coqc BuildLpsInit.v && coqc BuildLpsRun.v
+  coqc BuildLpsInduction.v && coqc BuildLpsInit.v && coqc BuildLpsRun.v && coqc BuildLpsTop.v
 ```
 
 ## The plan
@@ -223,6 +223,35 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        but none were visible until the outer induction actually tried to
        *use* the group theorem's output as the next call's input.
 
+       **Closing the label-depth seam** (`BuildLpsTop.v`, completes step
+       4b): every theorem from `BuildLpsIterate.v` through
+       `BuildLpsRun.v` first got an additive `_bare` companion — the
+       identical fact, proved the identical way, but without the
+       `AI_frame 0 _ f0` wrapping the original theorems carried only so
+       later files would have something frame-shaped to plug into each
+       other (`build_lps_iterate_match_bare`/`_backtrack_bare`/
+       `_giveup_bare`, `build_lps_exit_bare`, `build_lps_group_fuel_bare`,
+       `build_lps_run_bare`). Every pre-existing theorem's statement was
+       left byte-for-byte unchanged — each became, where applicable, a
+       one-line corollary of its `_bare` sibling via `reduce_trans_frame'`
+       — so this was zero-risk to everything already verified.
+       `build_lps_correct` then chains the unframed facts start to
+       finish (`build_lps_patLen_nonzero_pre`, `build_lps_init_store`,
+       `build_lps_init_locals`, `build_lps_loop_entry`,
+       `build_lps_run_bare`) into one `reduce_trans` fact with no framing
+       at all, and lifts *that* through exactly one label
+       (`reduce_trans_label1'`) plus the calling frame
+       (`reduce_trans_frame'`) — the same "lift through a congruence
+       label, then collapse via `rs_label_const`/`rs_local_const`"
+       technique `BuildLps.v`'s `build_lps_patLen_zero` already used
+       end-to-end for the early-return case. The result is stated
+       directly against the real `r_invoke_native` call shape
+       (`AI_frame 0 f_entry [AI_label 0 [::] (to_e_list build_lps_body)]`,
+       confirmed against `opsem.v:244-255`) reducing all the way to
+       `[::]`, for any nonempty pattern — `build_lps`'s genuine top-level
+       correctness theorem, not one that assumes away the calling
+       convention.
+
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
    through `kmp_search`'s internal call into `build_lps` (step 4 as a
@@ -235,11 +264,12 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
    about invoking the real exported `kmp_search` function, not an
    assumed environment. Explicit hypotheses (length bounds, memory
    layout / non-aliasing) are documented at the theorem, not hidden.
-   Also where the label-depth seam noted under `BuildLpsInit.v` above
-   gets closed: `r_invoke_native` wraps a called function's body in one
-   more label than `loop_entry_cfg`-based theorems assume, so the
-   existing `br` witnesses (loop + block, 2 labels) need extending one
-   layer deeper to connect to a real call.
+   (The label-depth seam noted under `BuildLpsInit.v` above — connecting
+   `r_invoke_native`'s real calling convention to the loop-level
+   reasoning — is already closed, for `build_lps`, by `BuildLpsTop.v`;
+   what's left here is the analogous instantiation step for the whole
+   module/store, plus the same connection for `kmp_search` once step 5
+   is done.)
 
 Steps 4–6 are the bulk of the remaining work: each loop iteration
 unfolds through roughly 15–20 chained instruction-level reduction steps
@@ -268,7 +298,7 @@ loop-invariant induction.
 | `BuildLpsInduction.v`: `build_lps_group_fuel`, per-group induction matching `cand_fuel` (step 4b) | done |
 | `BuildLpsInit.v`: prologue `patLen<>0` case + 7-instr init sequence, unchained (step 4b) | done |
 | `BuildLpsRun.v`: outer induction over `i`, `is_failure_table` (step 4b) | done |
-| `build_lps` top-level theorem: closing the `BuildLpsInit.v` label-depth seam (step 4b) | not started |
+| `BuildLpsTop.v`: `build_lps_correct`, real call-shaped top-level theorem (step 4b) | done |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 

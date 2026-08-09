@@ -3,26 +3,28 @@
     ([lps[0] := 0; len := 0; i := 1]): three self-contained instruction-
     level reduction facts, each proven against the real bytecode.
 
-    NOT yet assembled into a single "function entry to loop_entry_cfg"
-    theorem, and deliberately so: doing that surfaced a real structural
-    question this file leaves open rather than resolving in a hurry.
-    [build_lps_patLen_zero] (BuildLps.v) starts from the actual calling
-    convention (confirmed against [r_invoke_native], opsem.v:244-255):
-    invoking a function wraps its body in an extra label,
+    This file's three lemmas are deliberately left unassembled -- they
+    stay separate, self-contained facts about individual instruction
+    spans. Chaining them into a single "function entry to loop_entry_cfg"
+    theorem surfaced a real structural question: [build_lps_patLen_zero]
+    (BuildLps.v) starts from the actual calling convention (confirmed
+    against [r_invoke_native], opsem.v:244-255): invoking a function
+    wraps its body in an extra label,
     [AI_frame m f' [AI_label m [::] (to_e_list body)]]. But
     [BuildLpsExit.v]'s [loop_entry_cfg] and every theorem built on it
     since (through [BuildLpsInduction.v]) instead use
     [AI_frame 0 f (loop_entry_cfg f)] directly -- one label shallower.
     [loop_entry_cfg]'s own outer label is the [block]'s label (confirmed
     from [build_lps_loop_entry]'s proof, via [r_block]), not the
-    function-body label; reduction inside a [block] can't make a label
-    around it vanish, so this is a genuine extra label, not just a
-    presentational choice, and every [br 1] witness built so far
-    (2 labels: loop + block) would need re-deriving one layer deeper to
-    close the gap. Resolving this belongs with step 6 (real
-    instantiation) in the README's plan, where the actual calling
-    convention gets connected to this loop-level reasoning; it needs
-    care, not a rushed patch across already-verified files. *)
+    function-body label -- a genuine extra label, not just a
+    presentational choice.
+
+    This is now resolved: [BuildLpsTop.v]'s [build_lps_correct] chains
+    this file's lemmas with [BuildLpsExit.v]/[BuildLpsRun.v]'s unframed
+    ([_bare]) facts and lifts the combined chain through exactly the one
+    extra label via [reduce_trans_label1'], landing on a theorem stated
+    directly against the real [r_invoke_native] call shape. See that
+    file for the assembly and technique. *)
 From Wasm Require Import datatypes operations opsem extraction_instance memory_vec memory numerics.
 From mathcomp Require Import ssreflect ssrfun ssrnat ssrbool eqtype seq.
 From Coq Require Import BinNat Lia List NArith.Nnat ZArith.
