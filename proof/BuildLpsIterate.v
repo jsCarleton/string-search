@@ -156,11 +156,16 @@ Lemma loop_body_es_full_split :
     ++ [:: AI_basic (BI_if (BT_valtype None) match_bi mismatch_bi); AI_basic (BI_br 0%N)].
 Proof. vm_compute. reflexivity. Qed.
 
-(** One full non-exiting iteration taking the match branch
-    ([p[i] = p[len]]): the loop reduces from [loop_entry_cfg f] all the
-    way back to [loop_entry_cfg f2], with [len] and [i] both
-    incremented and [lps[i]] updated in memory. *)
-Theorem build_lps_iterate_match : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b f0,
+(** [_bare] version of [build_lps_iterate_match] below: the same fact
+    *without* the [AI_frame 0 _ f0] wrapping, i.e. stated directly at
+    the [loop_entry_cfg f] / [loop_entry_cfg f2] level. This is what
+    [BuildLpsInit.v]'s label-depth seam needs (see its header comment):
+    the wrapping is what the [reduce_trans_frame'] call at the very end
+    of the framed version below adds, and it can just as well be added
+    by *any* caller, at *any* depth (extra intervening labels only
+    require lifting through [reduce_trans_label1'] beforehand, which
+    doesn't care what's inside), rather than being baked in here. *)
+Lemma build_lps_iterate_match_bare : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b,
   small patPtr -> small patLenN -> small lpsPtr -> small lenN -> small iN -> small tmpN ->
   iN < patLenN ->
   small (patPtr + iN) -> small (patPtr + lenN) ->
@@ -177,10 +182,9 @@ Theorem build_lps_iterate_match : forall hs s inst patPtr patLenN lpsPtr lenN iN
   exists s' m',
     lookup_N s'.(s_mems) memaddr = Some m'
     /\ write_bytes (meminst_data m) (Z.to_N (lpsPtr + iN*4)) (serialise_num (VAL_int32 (enc (lenN+1)))) = Some (meminst_data m')
-    /\ reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
-                     (hs, s', f0, [:: AI_frame 0 f2 (loop_entry_cfg f2)]).
+    /\ reduce_trans (hs, s, f, loop_entry_cfg f) (hs, s', f2, loop_entry_cfg f2).
 Proof.
-  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b f0
+  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b
     Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt HaddPI HaddPL Hq1 Hq2 Hq3 Hq4 Hmems Hlkm Hlkb1 Hbnd1 Hlkb2 Hbnd2 Hbound f f2.
   have Hcheck := build_lps_check_continue hs s inst patPtr patLenN lpsPtr lenN iN tmpN
     Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt.
@@ -214,6 +218,38 @@ Proof.
     have C12 := reduce_trans_trans _ _ _ Hcheck' Hcmp'.
     exact: (reduce_trans_trans _ _ _ C12 Hif'). }
   have Creentry := loop_body_to_reentry hs s f hs s' f2 Cbody.
+  exists s', m'. split; [exact Hlkm' |]. split; [exact Hwr' |]. exact Creentry.
+Qed.
+
+(** One full non-exiting iteration taking the match branch
+    ([p[i] = p[len]]): the loop reduces from [loop_entry_cfg f] all the
+    way back to [loop_entry_cfg f2], with [len] and [i] both
+    incremented and [lps[i]] updated in memory. *)
+Theorem build_lps_iterate_match : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b f0,
+  small patPtr -> small patLenN -> small lpsPtr -> small lenN -> small iN -> small tmpN ->
+  iN < patLenN ->
+  small (patPtr + iN) -> small (patPtr + lenN) ->
+  small (lenN+1) -> small (iN+1) -> small (iN*4) -> small (lpsPtr + iN*4) ->
+  inst.(inst_mems) = [memaddr] ->
+  lookup_N s.(s_mems) memaddr = Some m ->
+  mem_lookup (Z.to_N (patPtr + iN)) m.(meminst_data) = Some b ->
+  N.lt (Z.to_N (patPtr + iN)) (operations.mem_length m) ->
+  mem_lookup (Z.to_N (patPtr + lenN)) m.(meminst_data) = Some b ->
+  N.lt (Z.to_N (patPtr + lenN)) (operations.mem_length m) ->
+  N.le (Z.to_N (lpsPtr + iN*4) + 4) (operations.mem_length m) ->
+  let f := loop_frame inst patPtr patLenN lpsPtr lenN iN tmpN in
+  let f2 := loop_frame inst patPtr patLenN lpsPtr (lenN+1) (iN+1) tmpN in
+  exists s' m',
+    lookup_N s'.(s_mems) memaddr = Some m'
+    /\ write_bytes (meminst_data m) (Z.to_N (lpsPtr + iN*4)) (serialise_num (VAL_int32 (enc (lenN+1)))) = Some (meminst_data m')
+    /\ reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
+                     (hs, s', f0, [:: AI_frame 0 f2 (loop_entry_cfg f2)]).
+Proof.
+  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b f0
+    Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt HaddPI HaddPL Hq1 Hq2 Hq3 Hq4 Hmems Hlkm Hlkb1 Hbnd1 Hlkb2 Hbnd2 Hbound f f2.
+  have [s' [m' [Hlkm' [Hwr' Creentry]]]] :=
+    build_lps_iterate_match_bare hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m b
+      Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt HaddPI HaddPL Hq1 Hq2 Hq3 Hq4 Hmems Hlkm Hlkb1 Hbnd1 Hlkb2 Hbnd2 Hbound.
   exists s', m'. split; [exact Hlkm' |]. split; [exact Hwr' |].
   exact: (reduce_trans_frame' _ _ _ _ _ _ _ _ 0 f0 Creentry).
 Qed.
@@ -228,7 +264,7 @@ Proof. reflexivity. Qed.
     backtrack sub-case ([p[i] <> p[len]], [len <> 0]): the loop reduces
     from [loop_entry_cfg f] back to [loop_entry_cfg f'], with [len] set
     to the previously-recorded [lps[len-1]] and [i] unchanged. *)
-Theorem build_lps_iterate_backtrack : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN f0,
+Lemma build_lps_iterate_backtrack_bare : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN,
   small patPtr -> small patLenN -> small lpsPtr -> small lenN -> small iN -> small tmpN ->
   iN < patLenN -> bi <> blen ->
   small (patPtr + iN) -> small (patPtr + lenN) ->
@@ -243,10 +279,9 @@ Theorem build_lps_iterate_backtrack : forall hs s inst patPtr patLenN lpsPtr len
   N.le (Z.to_N (lpsPtr + (lenN - 1) * 4) + 4) (operations.mem_length m) ->
   let f := loop_frame inst patPtr patLenN lpsPtr lenN iN tmpN in
   let f' := loop_frame inst patPtr patLenN lpsPtr prevLenN iN prevLenN in
-  reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
-               (hs, s, f0, [:: AI_frame 0 f' (loop_entry_cfg f')]).
+  reduce_trans (hs, s, f, loop_entry_cfg f) (hs, s, f', loop_entry_cfg f').
 Proof.
-  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN f0
+  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN
     Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt Hne HaddPI HaddPL Hq1 Hq2 Hq3 Hq4 Hq5 Hmems Hlkm Hlkbi Hbndi Hlkblen Hbndlen Hrb Hbound f f'.
   have Hcheck := build_lps_check_continue hs s inst patPtr patLenN lpsPtr lenN iN tmpN
     Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt.
@@ -275,7 +310,31 @@ Proof.
   { rewrite loop_body_es_full_split.
     have C12 := reduce_trans_trans _ _ _ Hcheck' Hcmp'.
     exact: (reduce_trans_trans _ _ _ C12 Hif'). }
-  have Creentry := loop_body_to_reentry hs s f hs s f' Cbody.
+  exact: (loop_body_to_reentry hs s f hs s f' Cbody).
+Qed.
+
+Theorem build_lps_iterate_backtrack : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN f0,
+  small patPtr -> small patLenN -> small lpsPtr -> small lenN -> small iN -> small tmpN ->
+  iN < patLenN -> bi <> blen ->
+  small (patPtr + iN) -> small (patPtr + lenN) ->
+  1 <= lenN -> small (lenN - 1) -> small ((lenN - 1) * 4) -> small (lpsPtr + (lenN - 1) * 4) -> small prevLenN ->
+  inst.(inst_mems) = [memaddr] ->
+  lookup_N s.(s_mems) memaddr = Some m ->
+  mem_lookup (Z.to_N (patPtr + iN)) m.(meminst_data) = Some bi ->
+  N.lt (Z.to_N (patPtr + iN)) (operations.mem_length m) ->
+  mem_lookup (Z.to_N (patPtr + lenN)) m.(meminst_data) = Some blen ->
+  N.lt (Z.to_N (patPtr + lenN)) (operations.mem_length m) ->
+  read_bytes m (Z.to_N (lpsPtr + (lenN - 1) * 4)) 4 = Some (serialise_num (VAL_int32 (enc prevLenN))) ->
+  N.le (Z.to_N (lpsPtr + (lenN - 1) * 4) + 4) (operations.mem_length m) ->
+  let f := loop_frame inst patPtr patLenN lpsPtr lenN iN tmpN in
+  let f' := loop_frame inst patPtr patLenN lpsPtr prevLenN iN prevLenN in
+  reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
+               (hs, s, f0, [:: AI_frame 0 f' (loop_entry_cfg f')]).
+Proof.
+  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN f0
+    Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt Hne HaddPI HaddPL Hq1 Hq2 Hq3 Hq4 Hq5 Hmems Hlkm Hlkbi Hbndi Hlkblen Hbndlen Hrb Hbound f f'.
+  have Creentry := build_lps_iterate_backtrack_bare hs s inst patPtr patLenN lpsPtr lenN iN tmpN memaddr m bi blen prevLenN
+    Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hlt Hne HaddPI HaddPL Hq1 Hq2 Hq3 Hq4 Hq5 Hmems Hlkm Hlkbi Hbndi Hlkblen Hbndlen Hrb Hbound.
   exact: (reduce_trans_frame' _ _ _ _ _ _ _ _ 0 f0 Creentry).
 Qed.
 
@@ -283,7 +342,7 @@ Qed.
     give-up sub-case ([p[i] <> p[len]], [len = 0]): the loop reduces
     from [loop_entry_cfg f] back to [loop_entry_cfg f2], with
     [lps[i] := 0] and [i] incremented; [len] stays [0]. *)
-Theorem build_lps_iterate_giveup : forall hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen f0,
+Lemma build_lps_iterate_giveup_bare : forall hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen,
   small patPtr -> small patLenN -> small lpsPtr -> small iN -> small tmpN ->
   iN < patLenN -> bi <> blen ->
   small (patPtr + iN) -> small (patPtr + 0) ->
@@ -300,10 +359,9 @@ Theorem build_lps_iterate_giveup : forall hs s inst patPtr patLenN lpsPtr iN tmp
   exists s' m',
     lookup_N s'.(s_mems) memaddr = Some m'
     /\ write_bytes (meminst_data m) (Z.to_N (lpsPtr + iN*4)) (serialise_num (VAL_int32 zero32)) = Some (meminst_data m')
-    /\ reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
-                     (hs, s', f0, [:: AI_frame 0 f2 (loop_entry_cfg f2)]).
+    /\ reduce_trans (hs, s, f, loop_entry_cfg f) (hs, s', f2, loop_entry_cfg f2).
 Proof.
-  move=> hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen f0
+  move=> hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen
     Hp1 Hp2 Hp3 Hp5 Hp6 Hlt Hne HaddPI HaddPL Hq2 Hq3 Hq4 Hmems Hlkm Hlkbi Hbndi Hlkblen Hbndlen Hbound f f2.
   have Hs0 : small 0 by rewrite /small; lia.
   have Hcheck := build_lps_check_continue hs s inst patPtr patLenN lpsPtr 0 iN tmpN
@@ -335,6 +393,34 @@ Proof.
     have C12 := reduce_trans_trans _ _ _ Hcheck' Hcmp'.
     exact: (reduce_trans_trans _ _ _ C12 Hif'). }
   have Creentry := loop_body_to_reentry hs s f hs s' f2 Cbody.
+  exists s', m'. split; [exact Hlkm' |]. split; [exact Hwr' |]. exact Creentry.
+Qed.
+
+Theorem build_lps_iterate_giveup : forall hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen f0,
+  small patPtr -> small patLenN -> small lpsPtr -> small iN -> small tmpN ->
+  iN < patLenN -> bi <> blen ->
+  small (patPtr + iN) -> small (patPtr + 0) ->
+  small (iN+1) -> small (iN*4) -> small (lpsPtr + iN*4) ->
+  inst.(inst_mems) = [memaddr] ->
+  lookup_N s.(s_mems) memaddr = Some m ->
+  mem_lookup (Z.to_N (patPtr + iN)) m.(meminst_data) = Some bi ->
+  N.lt (Z.to_N (patPtr + iN)) (operations.mem_length m) ->
+  mem_lookup (Z.to_N (patPtr + 0)) m.(meminst_data) = Some blen ->
+  N.lt (Z.to_N (patPtr + 0)) (operations.mem_length m) ->
+  N.le (Z.to_N (lpsPtr + iN*4) + 4) (operations.mem_length m) ->
+  let f := loop_frame inst patPtr patLenN lpsPtr 0 iN tmpN in
+  let f2 := loop_frame inst patPtr patLenN lpsPtr 0 (iN+1) tmpN in
+  exists s' m',
+    lookup_N s'.(s_mems) memaddr = Some m'
+    /\ write_bytes (meminst_data m) (Z.to_N (lpsPtr + iN*4)) (serialise_num (VAL_int32 zero32)) = Some (meminst_data m')
+    /\ reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
+                     (hs, s', f0, [:: AI_frame 0 f2 (loop_entry_cfg f2)]).
+Proof.
+  move=> hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen f0
+    Hp1 Hp2 Hp3 Hp5 Hp6 Hlt Hne HaddPI HaddPL Hq2 Hq3 Hq4 Hmems Hlkm Hlkbi Hbndi Hlkblen Hbndlen Hbound f f2.
+  have [s' [m' [Hlkm' [Hwr' Creentry]]]] :=
+    build_lps_iterate_giveup_bare hs s inst patPtr patLenN lpsPtr iN tmpN memaddr m bi blen
+      Hp1 Hp2 Hp3 Hp5 Hp6 Hlt Hne HaddPI HaddPL Hq2 Hq3 Hq4 Hmems Hlkm Hlkbi Hbndi Hlkblen Hbndlen Hbound.
   exists s', m'. split; [exact Hlkm' |]. split; [exact Hwr' |].
   exact: (reduce_trans_frame' _ _ _ _ _ _ _ _ 0 f0 Creentry).
 Qed.
