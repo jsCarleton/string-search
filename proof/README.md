@@ -20,7 +20,7 @@ eval $(opam env --switch=WasmCert-Coq)
 coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
   coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
-  coqc BuildLpsMismatch.v
+  coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v
 ```
 
 ## The plan
@@ -130,8 +130,23 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        `rs_label_const` (vacuously, on the empty value list) collapses
        the now-empty label away -- so the whole `if` resolves straight
        to `[::]` with no leftover wrapper for the caller to unwrap.
-       Still ahead: both branches' `br 0` back to the loop-entry state,
-       then chaining per-iteration steps via strong induction into
+       `BuildLpsIterate.v` closes the loop: `build_lps_check_continue`
+       is the mirror image of `BuildLpsExit.v`'s exit case (`i < patLen`,
+       so `br_if 1` is a no-op instead of firing); `loop_body_to_reentry`
+       is the generic (branch-independent) "close out one pass" step --
+       `br 0` targets the loop's own label, and per `r_loop`'s
+       definition that label's continuation content is literally the
+       `loop` instruction itself, so `rs_br` at a trivial
+       (`LH_base [::] [::]`) context hands back `[loop ...]`, which one
+       more `r_loop` step turns back into the same labelled shape
+       `loop_entry_cfg` expects. Chaining check + load/compare + branch
+       + reentry gives three theorems, one per outcome
+       (`build_lps_iterate_match`/`_backtrack`/`_giveup`), each proving
+       a full non-exiting pass reduces `loop_entry_cfg f` all the way
+       back to `loop_entry_cfg` of the updated locals/memory -- the
+       three cases the eventual per-iteration induction will case on.
+       Still ahead: the strong-induction argument chaining these three
+       per-iteration steps (plus `build_lps_exit`) into
        `KMPFailureRec.v`'s `cand`/`cand_correct`.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
@@ -169,7 +184,8 @@ loop-invariant induction.
 | `BuildLpsCmp.v`: load p[i]/p[len] + compare (step 4b) | done |
 | `BuildLpsMatch.v`: match branch (step 4b) | done |
 | `BuildLpsMismatch.v`: mismatch branch (backtrack / give-up) (step 4b) | done |
-| `build_lps` loop continuation (`br 0`) + per-iteration induction (step 4b) | not started |
+| `BuildLpsIterate.v`: loop continuation (`br 0`), per-outcome iterate theorems (step 4b) | done |
+| `build_lps` per-iteration strong-induction argument (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
