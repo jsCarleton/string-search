@@ -56,7 +56,7 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
      the spec for `build_lps`. `is_lps_unique` confirms this pins down
      a unique value, so it fully specifies the function.
 
-4. **`build_lps` loop correctness** *(in progress)*, split into two
+4. **`build_lps` loop correctness** *(done)*, split into two
    parts:
    - 4a. **The failure-function recurrence, in pure math** (`KMPFailureRec.v`,
      done) — independent of WebAssembly entirely: proves the classical
@@ -67,7 +67,7 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
      proved to compute exactly the `is_lps` spec value at each position,
      given the loop invariant `is_border` + `ruled_out_above` ("no
      larger border has been missed yet").
-   - 4b. **The wasm loop implements that recurrence** *(in progress)* —
+   - 4b. **The wasm loop implements that recurrence** *(done)* —
      show `build_lps`'s actual instruction sequence (as parsed in step
      1), executed via `reduce_trans` from a real initial configuration
      (pattern bytes in memory, bounded length), maintains the same
@@ -86,7 +86,7 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        non-interference outside a store's range
        (`mem_lookup_after_store_i32_disjoint`).
      - **Instruction-level reduction and the prologue** (`BuildLps.v`,
-       started) — lifting `CoreLemmas.v`'s composition lemmas through
+       done) — lifting `CoreLemmas.v`'s composition lemmas through
        each concrete instruction `build_lps` uses. `build_lps_es_split`
        anchors to the actual parsed body (`vm_compute`, not a
        transcription); `build_lps_patLen_zero` proves the early-return
@@ -95,7 +95,7 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        nesting depth -- the first proof of *actual kmp.wasm code*
        reducing under the real semantics, not just supporting
        infrastructure.
-     - **The main loop** *(in progress)*. `BuildLpsLoop.v` extracts the
+     - **The main loop** *(done)*. `BuildLpsLoop.v` extracts the
        loop's exact instruction shape (init sequence, loop body) by
        `vm_compute` against the real bytecode. `Int32Facts.v` gives the
        loop proof a clean `Z`-arithmetic interface to i32 comparisons/
@@ -271,7 +271,7 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
    module/store, plus the same connection for `kmp_search` once step 5
    is done.)
 
-Steps 4–6 are the bulk of the remaining work: each loop iteration
+Steps 5–6 are the bulk of the remaining work: each loop iteration
 unfolds through roughly 15–20 chained instruction-level reduction steps
 (locals get/set, i32 binops/relops with explicit range side-conditions
 for wraparound semantics, byte-level load/store), which then feed a
