@@ -75,14 +75,21 @@ Proof. vm_compute. reflexivity. Qed.
     (as [rs_br] with a 1-label-deep [lholed] witness -- the loop label
     sits between the [br]'s occurrence and its target, the block label),
     which then collapses the whole call frame to [] (0 results). *)
-Lemma build_lps_exit : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN f0,
+(** [_bare] version: the same fact without the [AI_frame 0 _ f0]
+    wrapping -- what [BuildLpsInit.v]'s label-depth seam needs (see its
+    header comment), matching the pattern used throughout
+    [BuildLpsIterate.v]. Unlike those, this one still collapses all the
+    way to [::] -- that's what "exit" *means*, not an artifact of frame
+    wrapping -- so it's exactly [build_lps_exit]'s proof stopped one
+    step early (before the final frame-collapse), with the frame-level
+    reasoning simply omitted. *)
+Lemma build_lps_exit_bare : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN,
   small patPtr -> small patLenN -> small lpsPtr -> small lenN -> small iN -> small tmpN ->
   patLenN <= iN ->
   let f := loop_frame inst patPtr patLenN lpsPtr lenN iN tmpN in
-  reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
-               (hs, s, f0, [::]).
+  reduce_trans (hs, s, f, loop_entry_cfg f) (hs, s, f, [::]).
 Proof.
-  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN f0
+  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN
     Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hge f.
   rewrite /loop_entry_cfg.
   (* local.get 4 *)
@@ -152,7 +159,20 @@ Proof.
   have HlabLoop := reduce_trans_label1' _ _ _ _ _ _ _ _ 0
     [:: AI_basic (BI_loop (BT_valtype None) build_lps_loop_body)] Hchain'.
   have HlabBlock := reduce_trans_label1' _ _ _ _ _ _ _ _ 0 [::] HlabLoop.
-  have Hlab2 := reduce_trans_trans _ _ _ HlabBlock (reduce_trans_step _ _ _ _ _ _ _ _ Hbr).
+  exact: (reduce_trans_trans _ _ _ HlabBlock (reduce_trans_step _ _ _ _ _ _ _ _ Hbr)).
+Qed.
+
+Lemma build_lps_exit : forall hs s inst patPtr patLenN lpsPtr lenN iN tmpN f0,
+  small patPtr -> small patLenN -> small lpsPtr -> small lenN -> small iN -> small tmpN ->
+  patLenN <= iN ->
+  let f := loop_frame inst patPtr patLenN lpsPtr lenN iN tmpN in
+  reduce_trans (hs, s, f0, [:: AI_frame 0 f (loop_entry_cfg f)])
+               (hs, s, f0, [::]).
+Proof.
+  move=> hs s inst patPtr patLenN lpsPtr lenN iN tmpN f0
+    Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hge f.
+  have Hlab2 := build_lps_exit_bare hs s inst patPtr patLenN lpsPtr lenN iN tmpN Hp1 Hp2 Hp3 Hp4 Hp5 Hp6 Hge.
+  simpl in Hlab2.
   have Hfr := reduce_trans_frame' _ _ _ _ _ _ _ _ 0 f0 Hlab2.
   (* Finally, the call frame -- now holding [] -- collapses to [] (0 results). *)
   have Hcollapse : reduce hs s f0 [:: AI_frame 0 f [::]] hs s f0 [::].
