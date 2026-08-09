@@ -153,11 +153,11 @@ Proof.
         { have Hbc := border_chain p i (S len') v Hborder Hv_le.
           apply Hbc. exact Hborder_Slen'. }
         have Hruled_new : ruled_out_above p i v.
-        { move=> b Hb_border Hvb.
+        { move=> b Hb_border Hvb Hbi.
           case: (Nat.le_gt_cases (S len') b) => Hcase.
           - case: (Nat.eq_dec b (S len')) => Heqb.
             + subst b. rewrite Hcl Hci. move=> Heq. apply Hcmp'. inversion Heq. reflexivity.
-            + apply: Hruled; [exact Hb_border | lia].
+            + apply: Hruled; [exact Hb_border | lia | exact Hbi].
           - exfalso.
             have Hb_le : Nat.le b (S len') by lia.
             have Hbc2 := border_chain p i (S len') b Hborder Hb_le.

@@ -131,8 +131,15 @@ Definition cand (p : text) (table : list nat) (i len : nat) : nat :=
 Definition table_correct_below (p : text) (table : list nat) (i : nat) : Prop :=
   forall j k, j < i -> nth_error table j = Some k -> is_lps p (S j) k.
 
+(** [b < i] restricts this to *proper* borders (matching [is_lps]'s own
+    [k < n]): without it, the trivial "whole prefix" border [b = i] is
+    always a live counterexample ([is_border p i i] holds unconditionally,
+    making [nth_error p i <> nth_error p i] impossible), so the predicate
+    could never actually be established by a caller -- only ever
+    consumed, never produced. Every use site below already has [b < i]
+    on hand, so this only weakens (eases) what needs proving. *)
 Definition ruled_out_above (p : text) (i len : nat) : Prop :=
-  forall b, is_border p i b -> len < b -> nth_error p b <> nth_error p i.
+  forall b, is_border p i b -> len < b -> b < i -> nth_error p b <> nth_error p i.
 
 Lemma cand_correct_fuel : forall (p : text) (table : list nat) (i : nat),
   i < length p ->
@@ -162,7 +169,7 @@ Proof.
       case: k' Hb' Hk'lt => [| b'] Hb' Hk'lt; [lia |].
       have [Hbord Hmatch] := border_shrink p i b' Hb'.
       case: (Nat.le_gt_cases b' len) => Hcase; [lia |].
-      have Hne := Hruled b' Hbord Hcase.
+      have Hne := Hruled b' Hbord Hcase (ltac:(lia)).
       exfalso. exact: (Hne Hmatch).
     + (* mismatch *)
       simpl.
@@ -178,7 +185,7 @@ Proof.
         have [Hbord Hmatch] := border_shrink p i b' Hb'.
         case: (Nat.eq_dec b' 0) => Hb'0.
         - exfalso. subst b'. congruence.
-        - have Hne := Hruled b' Hbord (ltac:(lia)).
+        - have Hne := Hruled b' Hbord (ltac:(lia)) (ltac:(lia)).
           exfalso. exact: (Hne Hmatch).
       * (* len = S len': backtrack to table[len'] *)
         simpl.
@@ -196,11 +203,11 @@ Proof.
         { have Hbc := border_chain p i (S len') v Hborder Hv_le.
           apply Hbc. exact Hborder_Slen'. }
         have Hruled_new : ruled_out_above p i v.
-        { move=> b Hb_border Hvb.
+        { move=> b Hb_border Hvb Hbi.
           case: (Nat.le_gt_cases (S len') b) => Hcase.
           - case: (Nat.eq_dec b (S len')) => Heqb.
             + subst b. rewrite Hcl Hic. congruence.
-            + apply: Hruled; [exact Hb_border | lia].
+            + apply: Hruled; [exact Hb_border | lia | exact Hbi].
           - exfalso.
             have Hb_le : b <= S len' by lia.
             have Hbc2 := border_chain p i (S len') b Hborder Hb_le.
