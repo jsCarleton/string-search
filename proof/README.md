@@ -20,7 +20,7 @@ eval $(opam env --switch=WasmCert-Coq)
 coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
   coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
-  coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v
+  coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v && coqc BuildLpsMemTable.v
 ```
 
 ## The plan
@@ -145,9 +145,29 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        a full non-exiting pass reduces `loop_entry_cfg f` all the way
        back to `loop_entry_cfg` of the updated locals/memory -- the
        three cases the eventual per-iteration induction will case on.
-       Still ahead: the strong-induction argument chaining these three
-       per-iteration steps (plus `build_lps_exit`) into
-       `KMPFailureRec.v`'s `cand`/`cand_correct`.
+       `BuildLpsMemTable.v` adds the last piece of plumbing: the bridge
+       between the WASM-level `lps` array (four bytes per entry, at
+       `lpsPtr + 4*j`) and `KMPFailureRec.v`'s plain `table : list nat`.
+       `lps_mem_matches m lpsPtr table n` says the two agree below `n`;
+       `lps_mem_matches_extend` shows writing a new entry (as the match/
+       give-up branches do) extends this from `n` to `n+1`, via a new
+       `read_bytes_write_bytes_disjoint` non-interference lemma (the
+       four-byte-range analogue of `MemLemmas.v`'s single-byte
+       `write_bytes_out`) applied to every earlier, untouched slot.
+       Getting this file to compile surfaced a sharper form of a
+       recurring gotcha: `ssrnat`'s `+`/`<=`/`<` overrides are not
+       reliably escaped by a `%coq_nat` or `%nat` scope delimiter on the
+       *outer* expression -- `lia` would fail on goals as simple as
+       `m < m + n'.+1` with "Cannot find witness" even though the goal
+       *displays* using Peano notation, because the delimiter doesn't
+       propagate into subterms the way it looks like it should. The
+       reliable fix is the one used throughout this proof: name the
+       operations directly (`Nat.lt`, `Nat.le`, `Nat.add`) instead of
+       leaning on notation at all. Still ahead: the strong-induction
+       argument chaining the three per-iteration steps (plus
+       `build_lps_exit`) and this memory invariant into
+       `KMPFailureRec.v`'s `cand`/`cand_correct`, producing `build_lps`'s
+       final correctness theorem.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -185,6 +205,7 @@ loop-invariant induction.
 | `BuildLpsMatch.v`: match branch (step 4b) | done |
 | `BuildLpsMismatch.v`: mismatch branch (backtrack / give-up) (step 4b) | done |
 | `BuildLpsIterate.v`: loop continuation (`br 0`), per-outcome iterate theorems (step 4b) | done |
+| `BuildLpsMemTable.v`: WASM `lps` array &harr; Coq `table : list nat` bridge (step 4b) | done |
 | `build_lps` per-iteration strong-induction argument (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
