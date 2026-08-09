@@ -110,3 +110,12 @@ Proof.
     rewrite Heq.
     apply: Hm; [exact Hjlt | exact Hnth'].
 Qed.
+
+(** [m] holds the pattern [p] as raw bytes at [patPtr], one byte per
+    entry. Unlike [lps_mem_matches], this never changes across
+    [build_lps]'s loop (the pattern is read-only), so there is no
+    corresponding "extend" lemma -- it is established once, by the
+    caller, from the initial memory layout. *)
+Definition pat_mem_matches (m : meminst) (patPtr : Z) (p : list byte) : Prop :=
+  forall j c, nth_error p j = Some c ->
+    mem_lookup (Z.to_N (patPtr + Z.of_nat j)) m.(meminst_data) = Some c.

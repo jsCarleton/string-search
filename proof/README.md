@@ -20,7 +20,8 @@ eval $(opam env --switch=WasmCert-Coq)
 coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
   coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
-  coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v && coqc BuildLpsMemTable.v
+  coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v && coqc BuildLpsMemTable.v && \
+  coqc BuildLpsInduction.v
 ```
 
 ## The plan
@@ -145,8 +146,8 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        a full non-exiting pass reduces `loop_entry_cfg f` all the way
        back to `loop_entry_cfg` of the updated locals/memory -- the
        three cases the eventual per-iteration induction will case on.
-       `BuildLpsMemTable.v` adds the last piece of plumbing: the bridge
-       between the WASM-level `lps` array (four bytes per entry, at
+       `BuildLpsMemTable.v` adds the memory-level plumbing needed next:
+       the bridge between the WASM-level `lps` array (four bytes per entry, at
        `lpsPtr + 4*j`) and `KMPFailureRec.v`'s plain `table : list nat`.
        `lps_mem_matches m lpsPtr table n` says the two agree below `n`;
        `lps_mem_matches_extend` shows writing a new entry (as the match/
@@ -163,11 +164,34 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        propagate into subterms the way it looks like it should. The
        reliable fix is the one used throughout this proof: name the
        operations directly (`Nat.lt`, `Nat.le`, `Nat.add`) instead of
-       leaning on notation at all. Still ahead: the strong-induction
-       argument chaining the three per-iteration steps (plus
-       `build_lps_exit`) and this memory invariant into
-       `KMPFailureRec.v`'s `cand`/`cand_correct`, producing `build_lps`'s
-       final correctness theorem.
+       leaning on notation at all. `BuildLpsMemTable.v` also adds
+       `pat_mem_matches`, the read-only counterpart bridging the
+       pattern bytes in memory to the plain `p : list byte`
+       `KMPFailureRec.v` reasons about (no "extend" lemma needed, since
+       the pattern never changes across the loop).
+
+       `BuildLpsInduction.v` closes step 4b's hardest remaining piece:
+       `build_lps_group_fuel` is structural induction on a `fuel`
+       parameter that mirrors `KMPFailureRec.v`'s `cand_fuel` recursion
+       instruction for instruction -- `build_lps_iterate_backtrack` *is*
+       `cand_fuel`'s recursive call, and `build_lps_iterate_match`/
+       `_giveup` are its two base cases -- so the theorem proves the
+       WASM loop computes exactly `cand_fuel`'s value while performing
+       the matching real `reduce_trans`, for an arbitrary run of
+       zero-or-more backtracks followed by a match or give-up. One
+       subtlety the proof had to account for: `build_lps_iterate_
+       backtrack`'s resulting frame sets *both* the `len` *and* the
+       scratch `tmp` local to the backtracked-to value (matching the
+       real WAT, which reuses `tmp` as scratch and never resets it) --
+       so unlike every other quantity, `tmpN` cannot be fixed across the
+       induction and had to move into the per-recursive-call
+       quantification (existentially in the conclusion, universally in
+       the hypothesis) rather than staying a top-level parameter. Still
+       ahead: the outer induction over `i` from `0` to `patLenN`
+       chaining `build_lps_group_fuel` calls (via `build_lps_exit` for
+       the final step) into `KMPFailureRec.v`'s `cand_correct` and
+       `is_failure_table`, producing `build_lps`'s top-level correctness
+       theorem.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -205,8 +229,9 @@ loop-invariant induction.
 | `BuildLpsMatch.v`: match branch (step 4b) | done |
 | `BuildLpsMismatch.v`: mismatch branch (backtrack / give-up) (step 4b) | done |
 | `BuildLpsIterate.v`: loop continuation (`br 0`), per-outcome iterate theorems (step 4b) | done |
-| `BuildLpsMemTable.v`: WASM `lps` array &harr; Coq `table : list nat` bridge (step 4b) | done |
-| `build_lps` per-iteration strong-induction argument (step 4b) | not started |
+| `BuildLpsMemTable.v`: WASM `lps` array &harr; Coq `table : list nat` bridge, plus read-only `pat_mem_matches` (step 4b) | done |
+| `BuildLpsInduction.v`: `build_lps_group_fuel`, per-group induction matching `cand_fuel` (step 4b) | done |
+| `build_lps` outer induction over `i` into `cand_correct`/`is_failure_table` (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
