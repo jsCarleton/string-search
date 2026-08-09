@@ -19,7 +19,7 @@ reduction relation.
 eval $(opam env --switch=WasmCert-Coq)
 coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
-  coqc Int32Facts.v && coqc BuildLpsExit.v
+  coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v
 ```
 
 ## The plan
@@ -103,13 +103,15 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        (`block`+`loop`, via `r_block` then `r_loop`) and the exit path
        (`i >= patLen`, so the check's `br_if 1` escapes both the loop's
        own label and the enclosing block's label in one `rs_br` step,
-       collapsing the call frame to `[]`). Still ahead: the "continue"
-       path — one iteration's match/mismatch branches (including the
-       `i32.store`/`i32.load` for `lps[i]`/`lps[len-1]`, via
-       `MemLemmas.v`) ending in `br 0` back to the loop-entry state —
-       then chaining per-iteration steps via strong induction into
-       `KMPFailureRec.v`'s `cand`/`cand_correct`. This remaining piece
-       is still comparable in size to everything landed so far.
+       collapsing the call frame to `[]`). `BuildLpsCmp.v` proves the
+       next 9 instructions: loading `p[i]` and `p[len]` via
+       `i32.load8_u` (`MemLemmas.v`'s `load8_u_value`) and comparing
+       them — the shared prefix both branches below start from. Still
+       ahead: the match branch (`len++; lps[i] := len; i++`) and
+       mismatch branch (backtrack via `lps[len-1]`, or give up:
+       `lps[i] := 0; i++`), both ending in `br 0` back to the
+       loop-entry state, then chaining per-iteration steps via strong
+       induction into `KMPFailureRec.v`'s `cand`/`cand_correct`.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -143,7 +145,8 @@ loop-invariant induction.
 | `BuildLpsLoop.v`: loop instruction shape, ground truth (step 4b) | done |
 | `Int32Facts.v`: small-value i32 arithmetic (step 4b) | done |
 | `BuildLpsExit.v`: loop entry + exit path (step 4b) | done |
-| `build_lps` loop "continue" path + induction (step 4b) | not started |
+| `BuildLpsCmp.v`: load p[i]/p[len] + compare (step 4b) | done |
+| `build_lps` match/mismatch branches + induction (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
