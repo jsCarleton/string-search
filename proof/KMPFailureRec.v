@@ -256,6 +256,23 @@ Proof.
   lia.
 Qed.
 
+(** The other half of the outer induction's per-position step: appending
+    the just-computed entry [v] (known correct via [is_lps p (S i) v])
+    to a [table_correct_below]-below-[i] table extends the property to
+    [S i]. *)
+Lemma table_correct_below_extend : forall p table i v,
+  length table = i -> table_correct_below p table i -> is_lps p (S i) v ->
+  table_correct_below p (table ++ [v]) (S i).
+Proof.
+  move=> p table i v Hlen Htc Hlps j k Hj Hnth.
+  case: (Nat.eq_dec j i) => Hji.
+  - subst j. rewrite List.nth_error_app2 in Hnth; [| lia].
+    rewrite Hlen Nat.sub_diag /= in Hnth. injection Hnth => <-. exact Hlps.
+  - have Hjlt : j < i by lia.
+    rewrite List.nth_error_app1 in Hnth; [| lia].
+    exact: (Htc j k Hjlt Hnth).
+Qed.
+
 (** Base case: at [i = 0], [table[0] = 0] unconditionally (no previous
     entries to consult), matching what the wasm code hard-codes. *)
 Theorem lps_zero_correct : forall (p : text), 0 < length p -> is_lps p 1 0.

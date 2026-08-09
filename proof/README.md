@@ -21,7 +21,7 @@ coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v &
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
   coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
   coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v && coqc BuildLpsMemTable.v && \
-  coqc BuildLpsInduction.v
+  coqc BuildLpsInduction.v && coqc BuildLpsInit.v && coqc BuildLpsRun.v
 ```
 
 ## The plan
@@ -186,13 +186,9 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        so unlike every other quantity, `tmpN` cannot be fixed across the
        induction and had to move into the per-recursive-call
        quantification (existentially in the conclusion, universally in
-       the hypothesis) rather than staying a top-level parameter. Still
-       ahead: the outer induction over `i` from `0` to `patLenN`
-       chaining `build_lps_group_fuel` calls (via `build_lps_exit` for
-       the final step) into `KMPFailureRec.v`'s `cand_correct` and
-       `is_failure_table`, producing `build_lps`'s top-level correctness
-       theorem. `BuildLpsInit.v` proves the prologue's `patLen <> 0`
-       case (mirroring `BuildLps.v`'s `patLen = 0` case) and the loop's
+       the hypothesis) rather than staying a top-level parameter.
+       `BuildLpsInit.v` proves the prologue's `patLen <> 0` case
+       (mirroring `BuildLps.v`'s `patLen = 0` case) and the loop's
        7-instruction init sequence (`lps[0] := 0; len := 0; i := 1`),
        but deliberately stops short of chaining them into
        `loop_entry_cfg` — doing so surfaced a real structural gap: the
@@ -205,6 +201,27 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        kind of seam step 6 (real instantiation) exists to handle, and
        is called out explicitly there rather than patched in a hurry
        across already-verified files.
+
+       **`BuildLpsRun.v` completes step 4b**: `build_lps_run`, by
+       induction on the number of positions remaining, chains
+       `build_lps_group_fuel` (one call per position) through to
+       `build_lps_exit` (once `i` reaches `length p`), producing a
+       theorem that covers the *entire* loop from any valid entry point
+       through to completion. `build_lps_run_is_failure_table` restates
+       the result directly against `KMPSpec.is_failure_table`. Getting
+       here required three more invariants to be threaded explicitly
+       through `build_lps_group_fuel`'s conclusion that weren't needed
+       within a single position but are needed to *chain* positions:
+       memory length is preserved (`operations.mem_length m' =
+       operations.mem_length m`, via `MemLemmas.v`'s
+       `write_bytes_mem_length`), the pattern buffer survives a write
+       into the disjoint `lps` output array (`pat_mem_matches m' patPtr
+       p`, via a new non-aliasing hypothesis between the two regions and
+       `write_bytes_out`'s non-interference), and the scratch `tmp`
+       local stays in range (`small tmpN'`). Each was a mechanical
+       three-branch addition (match/give-up/backtrack) once identified,
+       but none were visible until the outer induction actually tried to
+       *use* the group theorem's output as the next call's input.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -250,7 +267,8 @@ loop-invariant induction.
 | `BuildLpsMemTable.v`: WASM `lps` array &harr; Coq `table : list nat` bridge, plus read-only `pat_mem_matches` (step 4b) | done |
 | `BuildLpsInduction.v`: `build_lps_group_fuel`, per-group induction matching `cand_fuel` (step 4b) | done |
 | `BuildLpsInit.v`: prologue `patLen<>0` case + 7-instr init sequence, unchained (step 4b) | done |
-| `build_lps` outer induction over `i` into `cand_correct`/`is_failure_table` (step 4b) | not started |
+| `BuildLpsRun.v`: outer induction over `i`, `is_failure_table` (step 4b) | done |
+| `build_lps` top-level theorem: closing the `BuildLpsInit.v` label-depth seam (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
