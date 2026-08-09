@@ -240,6 +240,22 @@ Proof.
   - exact Hruled.
 Qed.
 
+(** The bridge the outer per-position induction needs: [is_lps]'s own
+    maximality clause is exactly enough to derive [ruled_out_above] for
+    the *same* [i]/[len] -- for [b < i] with [len < b], [is_border p i
+    b] together with maximality forces [b <= len], contradicting
+    [len < b], so the conclusion follows vacuously. (Without the [b < i]
+    restriction on [ruled_out_above] this would be false: the
+    unrestricted version can never be proved, only assumed -- see that
+    definition's comment.) *)
+Lemma ruled_out_above_of_is_lps : forall p i len, is_lps p i len -> ruled_out_above p i len.
+Proof.
+  move=> p i len [Hborder [Hlt Hmax]] b Hb_border Hlb Hbi.
+  exfalso.
+  have Hble := Hmax b Hb_border Hbi.
+  lia.
+Qed.
+
 (** Base case: at [i = 0], [table[0] = 0] unconditionally (no previous
     entries to consult), matching what the wasm code hard-codes. *)
 Theorem lps_zero_correct : forall (p : text), 0 < length p -> is_lps p 1 0.
