@@ -16,7 +16,7 @@
 From Wasm Require Import datatypes operations opsem extraction_instance memory_vec memory.
 From mathcomp Require Import ssreflect ssrfun ssrnat ssrbool eqtype seq.
 From Coq Require Import BinNat Lia List NArith.Nnat ZArith.
-From compcert Require Memdata.
+From compcert Require Memdata Integers.
 Import ListNotations.
 
 Existing Instance Memory_instance.memory_instance.
@@ -267,4 +267,33 @@ Proof.
   { rewrite Hlen_tf N.add_0_r. exact Hj. }
   rewrite (write_bytes_out _ _ _ _ _ Hwr Hj').
   exact Hlk.
+Qed.
+
+(** ** [i32.load8_u]'s value, in terms of the loaded byte *)
+
+Lemma load8_u_deserialise : forall (b : byte),
+  wasm_deserialise (bytes_takefill #00 4 [b]) T_i32 = VAL_int32 (Wasm_int.Int32.repr (Integers.Byte.unsigned b)).
+Proof.
+  move=> b.
+  rewrite /wasm_deserialise /bytes_takefill /= /Memdata.decode_int /Memdata.rev_if_be.
+  have Hbe : Archi.big_endian = false by vm_compute; reflexivity.
+  rewrite Hbe /Memdata.int_of_bytes /=.
+  have H0 : Integers.Byte.unsigned #00 = 0%Z by reflexivity.
+  rewrite H0.
+  do 2 f_equal. lia.
+Qed.
+
+(** Combines [load8_u_ok] and [load8_u_deserialise]: reading a byte via
+    [i32.load8_u] yields exactly its unsigned value, zero-extended. *)
+Lemma load8_u_value : forall (m : meminst) addr b,
+  mem_lookup addr m.(meminst_data) = Some b ->
+  N.lt addr (operations.mem_length m) ->
+  exists bs, load_packed SX_U m addr 0 (tp_length Tp_i8) (tnum_length T_i32) = Some bs
+    /\ wasm_deserialise bs T_i32 = VAL_int32 (Wasm_int.Int32.repr (Integers.Byte.unsigned b)).
+Proof.
+  move=> m addr b Hlk Hbound.
+  exists (bytes_takefill #00 4 [b]).
+  split.
+  - exact: (load8_u_ok m addr b Hlk Hbound).
+  - exact: load8_u_deserialise.
 Qed.
