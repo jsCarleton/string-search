@@ -222,3 +222,55 @@ Proof.
     have := Hlpsmax (j - d) Hjd_border Hjd_lt.
     lia.
 Qed.
+
+(** ** Connecting the invariants to [KMPSpec]'s correctness predicates *)
+
+(** Firing the [return] (extending the match to [pat]'s full length)
+    lands exactly on a genuine occurrence, at [(S i) - (S j)]: once
+    [S j = length pat], [search_matches]'s own equation *is*
+    [occurs_at]'s defining equation, just needing [skipn]/[firstn] to
+    commute ([skipn_firstn_comm]) to match shapes. *)
+Lemma search_matches_occurs_at_return : forall txt pat i j,
+  search_matches txt pat (S i) (S j) -> S i <= length txt -> S j = length pat ->
+  occurs_at txt pat (S i - S j).
+Proof.
+  move=> txt pat i j [Hjlen [Hji Heq]] Hib Hjeq.
+  split; [lia |].
+  rewrite skipn_firstn_comm in Heq.
+  have Heq' : S i - (S i - S j) = S j by lia.
+  rewrite Heq' Hjeq in Heq.
+  rewrite Hjeq -Heq.
+  exact: firstn_all.
+Qed.
+
+(** The final "found it" theorem: with the match and no-missed-
+    occurrence invariants both in hand at the point the whole pattern
+    is matched, [(S i) - (S j)] is exactly [pat]'s first occurrence. *)
+Theorem search_matches_is_first_occurrence : forall txt pat i j,
+  search_matches txt pat (S i) (S j) -> S i <= length txt -> S j = length pat ->
+  search_no_occ_before txt pat (i - j) ->
+  is_first_occurrence txt pat (S i - S j).
+Proof.
+  move=> txt pat i j Hm Hib Hjeq Hno.
+  split; [exact: (search_matches_occurs_at_return txt pat i j Hm Hib Hjeq) |].
+  move=> j0 Hj0.
+  apply: (Hno j0 (ltac:(lia))).
+Qed.
+
+(** The final "not found" theorem: if the scan reaches the end of
+    [txt] ([i = length txt]) with the running match strictly shorter
+    than [pat] (guaranteed by construction -- reaching [j = length pat]
+    fires a [return] immediately, so the scan never re-checks the exit
+    condition in that state), the no-missed-occurrence invariant alone
+    already covers *every* candidate position: any [i'] with
+    [occurs_at txt pat i'] satisfies [i' + length pat <= length txt],
+    hence [i' <= length txt - length pat < length txt - j]. *)
+Theorem search_no_occ_before_does_not_occur : forall txt pat i j,
+  i = length txt -> j < length pat ->
+  search_no_occ_before txt pat (i - j) ->
+  does_not_occur txt pat.
+Proof.
+  move=> txt pat i j Hi Hjlt Hno i' Hocc.
+  have [Hbound _] := Hocc.
+  apply: (Hno i' (ltac:(lia)) Hocc).
+Qed.
