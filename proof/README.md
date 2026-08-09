@@ -19,7 +19,7 @@ reduction relation.
 eval $(opam env --switch=WasmCert-Coq)
 coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
-  coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v
+  coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v
 ```
 
 ## The plan
@@ -106,12 +106,14 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        collapsing the call frame to `[]`). `BuildLpsCmp.v` proves the
        next 9 instructions: loading `p[i]` and `p[len]` via
        `i32.load8_u` (`MemLemmas.v`'s `load8_u_value`) and comparing
-       them — the shared prefix both branches below start from. Still
-       ahead: the match branch (`len++; lps[i] := len; i++`) and
-       mismatch branch (backtrack via `lps[len-1]`, or give up:
-       `lps[i] := 0; i++`), both ending in `br 0` back to the
-       loop-entry state, then chaining per-iteration steps via strong
-       induction into `KMPFailureRec.v`'s `cand`/`cand_correct`.
+       them — the shared prefix both branches below start from.
+       `BuildLpsMatch.v` proves the match branch in full (`len++;
+       lps[i] := len; i++`, including the real `i32.store`). Still
+       ahead: the mismatch branch (backtrack via `lps[len-1]`, or give
+       up: `lps[i] := 0; i++`, one more level of nested `if`), both
+       branches' `br 0` back to the loop-entry state, then chaining
+       per-iteration steps via strong induction into
+       `KMPFailureRec.v`'s `cand`/`cand_correct`.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -146,7 +148,8 @@ loop-invariant induction.
 | `Int32Facts.v`: small-value i32 arithmetic (step 4b) | done |
 | `BuildLpsExit.v`: loop entry + exit path (step 4b) | done |
 | `BuildLpsCmp.v`: load p[i]/p[len] + compare (step 4b) | done |
-| `build_lps` match/mismatch branches + induction (step 4b) | not started |
+| `BuildLpsMatch.v`: match branch (step 4b) | done |
+| `build_lps` mismatch branch + induction (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 
