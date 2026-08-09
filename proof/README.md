@@ -191,7 +191,20 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        chaining `build_lps_group_fuel` calls (via `build_lps_exit` for
        the final step) into `KMPFailureRec.v`'s `cand_correct` and
        `is_failure_table`, producing `build_lps`'s top-level correctness
-       theorem.
+       theorem. `BuildLpsInit.v` proves the prologue's `patLen <> 0`
+       case (mirroring `BuildLps.v`'s `patLen = 0` case) and the loop's
+       7-instruction init sequence (`lps[0] := 0; len := 0; i := 1`),
+       but deliberately stops short of chaining them into
+       `loop_entry_cfg` — doing so surfaced a real structural gap: the
+       actual function-call convention (`r_invoke_native`, confirmed in
+       `opsem.v`) wraps a called function's body in an extra label
+       beyond what `loop_entry_cfg` (and everything built on it since,
+       through `BuildLpsInduction.v`) assumes. Every `br 1` witness
+       built so far escapes exactly 2 labels (loop + block); connecting
+       to a real call needs them one layer deeper. This is exactly the
+       kind of seam step 6 (real instantiation) exists to handle, and
+       is called out explicitly there rather than patched in a hurry
+       across already-verified files.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
    `is_first_occurrence` / `does_not_occur`, additionally reasoning
@@ -205,6 +218,11 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
    about invoking the real exported `kmp_search` function, not an
    assumed environment. Explicit hypotheses (length bounds, memory
    layout / non-aliasing) are documented at the theorem, not hidden.
+   Also where the label-depth seam noted under `BuildLpsInit.v` above
+   gets closed: `r_invoke_native` wraps a called function's body in one
+   more label than `loop_entry_cfg`-based theorems assume, so the
+   existing `br` witnesses (loop + block, 2 labels) need extending one
+   layer deeper to connect to a real call.
 
 Steps 4–6 are the bulk of the remaining work: each loop iteration
 unfolds through roughly 15–20 chained instruction-level reduction steps
@@ -231,6 +249,7 @@ loop-invariant induction.
 | `BuildLpsIterate.v`: loop continuation (`br 0`), per-outcome iterate theorems (step 4b) | done |
 | `BuildLpsMemTable.v`: WASM `lps` array &harr; Coq `table : list nat` bridge, plus read-only `pat_mem_matches` (step 4b) | done |
 | `BuildLpsInduction.v`: `build_lps_group_fuel`, per-group induction matching `cand_fuel` (step 4b) | done |
+| `BuildLpsInit.v`: prologue `patLen<>0` case + 7-instr init sequence, unchained (step 4b) | done |
 | `build_lps` outer induction over `i` into `cand_correct`/`is_failure_table` (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
