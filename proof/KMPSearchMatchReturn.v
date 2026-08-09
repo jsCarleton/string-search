@@ -202,7 +202,7 @@ Theorem kmp_search_match_return : forall hs s inst f0 textPtr textLenN patPtr pa
   N.lt (Z.to_N (patPtr + jN)) (operations.mem_length m) ->
   bi = bj ->
   let f := search_frame inst textPtr textLenN patPtr patLenN lpsPtr iN jN in
-  reduce_trans (hs, s, f0, [:: AI_frame 1 f [:: AI_label 1 [::] (search_loop_entry_cfg f)]])
+  reduce_trans (hs, s, f0, [:: AI_frame 1 f [:: AI_label 1 [::] (search_loop_entry_cfg f ++ kmp_search_final_es)]])
                (hs, s, f0, [:: AI_basic (BI_const_num (VAL_int32 (enc ((iN+1)-(jN+1)))))]).
 Proof.
   move=> hs s inst f0 textPtr textLenN patPtr patLenN lpsPtr iN jN memaddr m bi bj
@@ -237,26 +237,33 @@ Proof.
   have HlabLoop := reduce_trans_label1' _ _ _ _ _ _ _ _ 0
     [:: AI_basic (BI_loop (BT_valtype None) kmp_search_loop_body)] Cbody.
   have HlabBlock := reduce_trans_label1' _ _ _ _ _ _ _ _ 0 [::] HlabLoop.
-  have HlabFunc := reduce_trans_label1' _ _ _ _ _ _ _ _ 1 [::] HlabBlock.
+  (* [HlabBlock] operates entirely within [search_loop_entry_cfg f]; the
+     trailing [kmp_search_final_es] (the real function body's fallback
+     after the block, per [KMPSearchExit.v]'s [kmp_search_exit_bare])
+     has to be carried through as a fixed suffix *before* wrapping in
+     the function-body label, since it sits inside that same label
+     alongside the block -- not outside it. *)
+  have HlabBlock' := reduce_trans_prefix' _ _ _ _ _ _ _ _ kmp_search_final_es HlabBlock.
+  have HlabFunc := reduce_trans_label1' _ _ _ _ _ _ _ _ 1 [::] HlabBlock'.
   have Hfr := reduce_trans_frame' _ _ _ _ _ _ _ _ 1 f0 HlabFunc.
   simpl in Hfr.
   have Hret : reduce hs s f0
     [:: AI_frame 1 f' [:: AI_label 1 [::]
-          [:: AI_label 0 [::]
+          ([:: AI_label 0 [::]
                 [:: AI_label 0 [:: AI_basic (BI_loop (BT_valtype None) kmp_search_loop_body)]
                       ([:: AI_label 0 [::] [:: AI_label 0 [::]
                             [:: AI_basic (BI_const_num (VAL_int32 (enc ((iN+1)-(jN+1))))); AI_basic BI_return]]]
-                       ++ [:: AI_basic (BI_br 0%N)])]]]]
+                       ++ [:: AI_basic (BI_br 0%N)])]] ++ kmp_search_final_es)]]
     hs s f0 [:: AI_basic (BI_const_num (VAL_int32 (enc ((iN+1)-(jN+1)))))].
   { apply reduce_simple_reduce.
     apply (rs_return (n := 1) (i := 5)
       (vs := [:: AI_basic (BI_const_num (VAL_int32 (enc ((iN+1)-(jN+1)))))])
       (es := [:: AI_label 1 [::]
-          [:: AI_label 0 [::]
+          ([:: AI_label 0 [::]
                 [:: AI_label 0 [:: AI_basic (BI_loop (BT_valtype None) kmp_search_loop_body)]
                       ([:: AI_label 0 [::] [:: AI_label 0 [::]
                             [:: AI_basic (BI_const_num (VAL_int32 (enc ((iN+1)-(jN+1))))); AI_basic BI_return]]]
-                       ++ [:: AI_basic (BI_br 0%N)])]]])
+                       ++ [:: AI_basic (BI_br 0%N)])]] ++ kmp_search_final_es)])
       (lh := LH_rec [::] 1 [::]
                (LH_rec [::] 0 [::]
                   (LH_rec [::] 0 [:: AI_basic (BI_loop (BT_valtype None) kmp_search_loop_body)]
@@ -264,7 +271,7 @@ Proof.
                         (LH_rec [::] 0 [::] (LH_base [::] [::]) [::])
                      [:: AI_basic (BI_br 0%N)])
                   [::])
-               [::])
+               kmp_search_final_es)
             [::]));
       try reflexivity; try done. }
   exact: (reduce_trans_trans _ _ _ Hfr (reduce_trans_step _ _ _ _ _ _ _ _ Hret)).

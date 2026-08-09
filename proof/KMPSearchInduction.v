@@ -50,7 +50,7 @@ Theorem kmp_search_group_fuel :
        reduce_trans (hs, s, f, search_loop_entry_cfg f) (hs, s, f', search_loop_entry_cfg f'))
     \/ (exists v,
        is_first_occurrence txt pat v /\
-       reduce_trans (hs, s, f0, [:: AI_frame 1 f [:: AI_label 1 [::] (search_loop_entry_cfg f)]])
+       reduce_trans (hs, s, f0, [:: AI_frame 1 f [:: AI_label 1 [::] (search_loop_entry_cfg f ++ kmp_search_final_es)]])
                      (hs, s, f0, [:: AI_basic (BI_const_num (VAL_int32 (enc (Z.of_nat v))))])).
 Proof.
   move=> hs s inst f0 textPtr textLenN patPtr patLenN lpsPtr memaddr m txt pat table i
@@ -197,7 +197,8 @@ Proof.
           right.
           exists w.
           split; [exact Hfound |].
-          have HbackLab := reduce_trans_label1' _ _ _ _ _ _ _ _ 1 [::] Hback.
+          have Hback' := reduce_trans_prefix' _ _ _ _ _ _ _ _ kmp_search_final_es Hback.
+          have HbackLab := reduce_trans_label1' _ _ _ _ _ _ _ _ 1 [::] Hback'.
           have HbackFr := reduce_trans_frame' _ _ _ _ _ _ _ _ 1 f0 HbackLab.
           exact: (reduce_trans_trans _ _ _ HbackFr Hredw).
 Qed.
