@@ -297,3 +297,33 @@ Proof.
   - exact: (load8_u_ok m addr b Hlk Hbound).
   - exact: load8_u_deserialise.
 Qed.
+
+(** ** [i32.load]'s value: an in-range address whose four bytes are
+      exactly a previously-serialised i32 loads back that i32 (the
+      backtrack step of [build_lps] reads a *previously written* [lps]
+      entry, not one it just stored, so this is stated from a bare
+      [read_bytes] fact rather than [load_i32_after_store]'s [store]
+      hypothesis). *)
+Lemma load_i32_value : forall (m : meminst) addr v,
+  read_bytes m addr 4 = Some (serialise_num (VAL_int32 v)) ->
+  N.le (addr + 4) (operations.mem_length m) ->
+  load m addr 0 4 = Some (serialise_num (VAL_int32 v))
+  /\ wasm_deserialise (serialise_num (VAL_int32 v)) T_i32 = VAL_int32 v.
+Proof.
+  move=> m addr v Hrb Hbound.
+  split.
+  - rewrite /load.
+    have -> : (addr + (0 + 4) <=? operations.mem_length m) = true.
+    { apply /N.leb_le. lia. }
+    rewrite N.add_0_r. exact Hrb.
+  - rewrite /wasm_deserialise /serialise_num /serialise_i32.
+    f_equal.
+    rewrite Memdata.decode_encode_int.
+    have Hrange := Wasm_int.Int32.unsigned_range v.
+    have Hmod : two_p (Z.of_nat 4 * 8) = Wasm_int.Int32.modulus by vm_compute; reflexivity.
+    rewrite Hmod.
+    rewrite Z.mod_small; [| exact Hrange].
+    have H := Wasm_int.Int32.int_of_Z_Z_of_uint v.
+    rewrite /Wasm_int.int_of_Z /Wasm_int.Z_of_uint /= in H.
+    exact H.
+Qed.

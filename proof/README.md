@@ -19,7 +19,8 @@ reduction relation.
 eval $(opam env --switch=WasmCert-Coq)
 coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v && \
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
-  coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v
+  coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
+  coqc BuildLpsMismatch.v
 ```
 
 ## The plan
@@ -108,11 +109,29 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        `i32.load8_u` (`MemLemmas.v`'s `load8_u_value`) and comparing
        them — the shared prefix both branches below start from.
        `BuildLpsMatch.v` proves the match branch in full (`len++;
-       lps[i] := len; i++`, including the real `i32.store`). Still
-       ahead: the mismatch branch (backtrack via `lps[len-1]`, or give
-       up: `lps[i] := 0; i++`, one more level of nested `if`), both
-       branches' `br 0` back to the loop-entry state, then chaining
-       per-iteration steps via strong induction into
+       lps[i] := len; i++`, including the real `i32.store`).
+       `BuildLpsMismatch.v` proves the mismatch branch: the nested
+       `len != 0` check (`ROI_ne`'s `app_relop` unfolds through the
+       mixin field `Wasm_int.int_ne`, one layer deeper than `ROI_eq`/
+       `ROI_ge`, which land straight on `Wasm_int.Int32.eq`/`.lt`);
+       backtrack (`len := lps[len-1]`, a real `i32.load` reading a
+       table entry written by an *earlier* iteration, via a new
+       `MemLemmas.v` lemma `load_i32_value` taking a bare `read_bytes`
+       fact rather than `load_i32_after_store`'s `store`-based one);
+       and give-up (`lps[i] := 0; i++`, structurally `BuildLpsMatch.v`'s
+       store-then-increment segments with `0` in place of `len+1`).
+       Assembling `if`/`block`/label entry into the taken branch (shared
+       by both the match and mismatch branches, and generic enough to
+       land in `CoreLemmas.v` as `reduce_trans_if_true`/
+       `reduce_trans_if_false`) needed one new piece of congruence
+       plumbing: `rs_if_true`/`rs_if_false` turn the `if` into a
+       `block`, `r_block` opens it into an `AI_label`, the branch body
+       runs to `[::]` inside that label via `reduce_trans_label1'`, and
+       `rs_label_const` (vacuously, on the empty value list) collapses
+       the now-empty label away -- so the whole `if` resolves straight
+       to `[::]` with no leftover wrapper for the caller to unwrap.
+       Still ahead: both branches' `br 0` back to the loop-entry state,
+       then chaining per-iteration steps via strong induction into
        `KMPFailureRec.v`'s `cand`/`cand_correct`.
 
 5. **`kmp_search` loop correctness** *(planned)* — same shape, against
@@ -149,7 +168,8 @@ loop-invariant induction.
 | `BuildLpsExit.v`: loop entry + exit path (step 4b) | done |
 | `BuildLpsCmp.v`: load p[i]/p[len] + compare (step 4b) | done |
 | `BuildLpsMatch.v`: match branch (step 4b) | done |
-| `build_lps` mismatch branch + induction (step 4b) | not started |
+| `BuildLpsMismatch.v`: mismatch branch (backtrack / give-up) (step 4b) | done |
+| `build_lps` loop continuation (`br 0`) + per-iteration induction (step 4b) | not started |
 | `kmp_search` correctness | not started |
 | Real instantiation / top-level theorem | not started |
 

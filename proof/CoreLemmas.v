@@ -175,3 +175,61 @@ Proof.
   move=> hs s f es hs' s' f' es' n lbl Htrans.
   exact: (reduce_trans_label1 (hs, s, f, es) (hs', s', f', es') n lbl Htrans).
 Qed.
+
+(** [if]/[block] entry, specialised to a no-params-no-results ([BT_valtype
+    None]) block whose taken branch fully drains to [::] (the common
+    shape of [build_lps]'s match/mismatch branches): pushing the [if]'s
+    boolean condition and letting the taken branch run to completion
+    reduces the whole thing straight to [::], with no leftover [block]/
+    [label] wrapper. Two copies, one per branch, since [rs_if_true] and
+    [rs_if_false] pick different branches (and differ on whether the
+    condition is nonzero or zero). *)
+Lemma reduce_trans_if_true : forall hs s f c es1 es2 hs' s' f',
+  c <> Wasm_int.int_zero i32m ->
+  reduce_trans (hs, s, f, to_e_list es1) (hs', s', f', [::]) ->
+  reduce_trans (hs, s, f, [:: $VN (VAL_int32 c); AI_basic (BI_if (BT_valtype None) es1 es2)])
+               (hs', s', f', [::]).
+Proof.
+  move=> hs s f c es1 es2 hs' s' f' Hc Hbody.
+  have Hif : reduce hs s f [:: $VN (VAL_int32 c); AI_basic (BI_if (BT_valtype None) es1 es2)]
+                    hs s f [:: AI_basic (BI_block (BT_valtype None) es1)].
+  { apply reduce_simple_reduce. apply rs_if_true. exact Hc. }
+  have Hblock : reduce hs s f [:: AI_basic (BI_block (BT_valtype None) es1)]
+                       hs s f [:: AI_label 0 [::] (to_e_list es1)].
+  { apply r_block with (vs := [::]) (n := 0) (m := 0) (t1s := [::]) (t2s := [::]); try reflexivity; try done. }
+  have Hlabel := reduce_trans_label1' hs s f (to_e_list es1) hs' s' f' [::] 0 [::] Hbody.
+  have Hconst : reduce_simple [:: AI_label 0 [::] ([::] : seq administrative_instruction)] [::].
+  { apply rs_label_const. done. }
+  have Hcollapse := reduce_simple_reduce hs' s' f' _ _ Hconst.
+  have Step1 := reduce_trans_step _ _ _ _ _ _ _ _ Hif.
+  have Step2 := reduce_trans_step _ _ _ _ _ _ _ _ Hblock.
+  have Step4 := reduce_trans_step _ _ _ _ _ _ _ _ Hcollapse.
+  have C12 := reduce_trans_trans _ _ _ Step1 Step2.
+  have C123 := reduce_trans_trans _ _ _ C12 Hlabel.
+  exact: (reduce_trans_trans _ _ _ C123 Step4).
+Qed.
+
+Lemma reduce_trans_if_false : forall hs s f c es1 es2 hs' s' f',
+  c = Wasm_int.int_zero i32m ->
+  reduce_trans (hs, s, f, to_e_list es2) (hs', s', f', [::]) ->
+  reduce_trans (hs, s, f, [:: $VN (VAL_int32 c); AI_basic (BI_if (BT_valtype None) es1 es2)])
+               (hs', s', f', [::]).
+Proof.
+  move=> hs s f c es1 es2 hs' s' f' Hc Hbody.
+  have Hif : reduce hs s f [:: $VN (VAL_int32 c); AI_basic (BI_if (BT_valtype None) es1 es2)]
+                    hs s f [:: AI_basic (BI_block (BT_valtype None) es2)].
+  { apply reduce_simple_reduce. apply rs_if_false. exact Hc. }
+  have Hblock : reduce hs s f [:: AI_basic (BI_block (BT_valtype None) es2)]
+                       hs s f [:: AI_label 0 [::] (to_e_list es2)].
+  { apply r_block with (vs := [::]) (n := 0) (m := 0) (t1s := [::]) (t2s := [::]); try reflexivity; try done. }
+  have Hlabel := reduce_trans_label1' hs s f (to_e_list es2) hs' s' f' [::] 0 [::] Hbody.
+  have Hconst : reduce_simple [:: AI_label 0 [::] ([::] : seq administrative_instruction)] [::].
+  { apply rs_label_const. done. }
+  have Hcollapse := reduce_simple_reduce hs' s' f' _ _ Hconst.
+  have Step1 := reduce_trans_step _ _ _ _ _ _ _ _ Hif.
+  have Step2 := reduce_trans_step _ _ _ _ _ _ _ _ Hblock.
+  have Step4 := reduce_trans_step _ _ _ _ _ _ _ _ Hcollapse.
+  have C12 := reduce_trans_trans _ _ _ Step1 Step2.
+  have C123 := reduce_trans_trans _ _ _ C12 Hlabel.
+  exact: (reduce_trans_trans _ _ _ C123 Step4).
+Qed.
