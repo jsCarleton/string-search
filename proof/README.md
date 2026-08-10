@@ -25,7 +25,8 @@ coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v &
   coqc KMPSearch.v && coqc KMPSearchLoop.v && coqc KMPSearchExit.v && coqc KMPSearchCmp.v && \
   coqc KMPSearchMatch.v && coqc KMPSearchMismatch.v && coqc KMPSearchIterate.v && \
   coqc KMPSearchRec.v && coqc KMPSearchMatchReturn.v && coqc KMPSearchInduction.v && \
-  coqc KMPSearchInit.v && coqc KMPSearchRun.v && coqc KMPSearchCall.v && coqc KMPSearchTop.v
+  coqc KMPSearchInit.v && coqc KMPSearchRun.v && coqc KMPSearchCall.v && coqc KMPSearchTop.v && \
+  coqc KMPInstantiate.v
 ```
 
 ## The plan
@@ -321,24 +322,46 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
    into `kmp_search_correct`: the fully general, real-call-shaped
    top-level theorem for `kmp_search`, covering every pattern.
 
-6. **Real instantiation** *(planned)* — use WasmCert-Coq's
-   `interp_instantiate_sound` to connect the parsed module (step 1) to
-   an actual store/instance, so the final top-level theorem is stated
-   about invoking the real exported `kmp_search` function, not an
-   assumed environment. Explicit hypotheses (length bounds, memory
-   layout / non-aliasing) are documented at the theorem, not hidden.
+6. **Real instantiation** *(done, `KMPInstantiate.v`)* — use
+   WasmCert-Coq's `interp_instantiate`/`interp_instantiate_imp_instantiate`
+   (`instantiation_func.v`/`interp_instantiate_sound.v`) to connect the
+   parsed module (step 1) to an actual store/instance, so the final
+   top-level theorems are stated about invoking the real exported
+   `build_lps`/`kmp_search` functions, not an assumed environment.
+   `kmp.wasm` turns out to have no imports, elements, data segments, or
+   start function (confirmed by `vm_compute` against the real parsed
+   bytes, same technique used throughout this proof), so instantiating
+   it from the empty store is a single closed computation with nothing
+   left to run afterwards — computed once (`kmp_inst_pair`) and lifted
+   through `interp_instantiate_imp_instantiate` to a genuine proof of
+   the spec-level `instantiate` relation, not just a value chosen to
+   look right. Every structural hypothesis `build_lps_correct`/
+   `kmp_search_correct` needed as an assumption — the two functions'
+   real addresses (0 and 1) and closures, the module's one memory's
+   address (0) — becomes a ground fact about this real instantiated
+   module, discharged internally by `vm_compute` rather than assumed;
+   `build_lps_wasm_correct`/`kmp_wasm_correct` specialise the step
+   4b/5 theorems accordingly, dropping those hypotheses. What remains a
+   hypothesis in the final theorems is exactly what's outside the
+   module's control: the caller-supplied text/pattern bytes actually
+   present in memory at call time (length bounds, memory layout /
+   non-aliasing are all still stated explicitly, not hidden). One new
+   gotcha surfaced here: a fresh page-sized memory's concrete byte
+   content does not fully reduce under `vm_compute` to a literal value
+   (the underlying vector representation gets stuck on a dependent
+   proof component, the same shape already seen with `enc`) — so the
+   module's fresh memory (`kmp_mem0`) is kept opaque; nothing needs its
+   content, only that it's *there*.
    (The label-depth seam noted under `BuildLpsInit.v` above — connecting
    `r_invoke_native`'s real calling convention to the loop-level
-   reasoning — is already closed for both `build_lps` (`BuildLpsTop.v`)
-   and `kmp_search` (`KMPSearchTop.v`); what's left here is the
-   analogous instantiation step for the whole module/store.)
+   reasoning — was already closed for both `build_lps` (`BuildLpsTop.v`)
+   and `kmp_search` (`KMPSearchTop.v`) before this step; this step
+   closes the analogous gap one level up, for the whole module/store.)
 
-Step 6 is the only remaining work: connecting `kmp_search_correct` and
-`build_lps_correct`, both already stated against the real
-`r_invoke_native` call shape, to an actual instantiated module/store
-via `interp_instantiate_sound`, so the final theorem is about invoking
-the real exported `kmp_search` function rather than an assumed
-environment.
+This completes the plan: `build_lps` and `kmp_search` are both proved
+correct against the real compiled `kmp.wasm` bytecode, reasoned about
+via WasmCert-Coq's real small-step semantics end to end, connected to
+an actual instantiated module/store rather than an assumed environment.
 
 ## Status
 
@@ -376,7 +399,7 @@ environment.
 | `KMPSearchRun.v`: outer induction over text positions (step 5) | done |
 | `KMPSearchCall.v`: the call into `build_lps` (step 5) | done |
 | `KMPSearchTop.v`: `kmp_search_correct`, real call-shaped top-level theorem (step 5) | done |
-| Real instantiation / top-level theorem (step 6) | not started |
+| `KMPInstantiate.v`: real instantiation, `build_lps_wasm_correct`/`kmp_wasm_correct` (step 6) | done |
 
 ## Why this scope
 
