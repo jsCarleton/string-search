@@ -31,7 +31,8 @@ Open Scope Z_scope.
     instead of the framed originals. Since there's no ambient [f0] to
     hide it behind here, the final local frame (whatever it ended up
     as, after however many iterations) has to be exposed explicitly. *)
-Theorem build_lps_run_bare : forall k hs s inst patPtr patLenN lpsPtr tmpN memaddr m (p : list byte) (table : list nat) (i len : nat),
+Theorem build_lps_run_bare : forall k hs s inst patPtr patLenN lpsPtr tmpN memaddr m (p : list byte) (table : list nat) (i len : nat)
+    (qPtr : Z) (q : list byte),
   small patPtr -> small lpsPtr ->
   patLenN = Z.of_nat (length p) ->
   small (Z.of_nat (length p)) ->
@@ -44,6 +45,13 @@ Theorem build_lps_run_bare : forall k hs s inst patPtr patLenN lpsPtr tmpN memad
   N.le (Z.to_N (lpsPtr + Z.of_nat (length p) * 4) + 4) (operations.mem_length m) ->
   pat_mem_matches m patPtr p ->
   (patPtr + Z.of_nat (length p) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= patPtr) ->
+  (* A second, caller-supplied buffer disjoint from the [lps] output
+     array (e.g. [kmp_search]'s own [text]), threaded through
+     [build_lps_group_fuel_bare]'s own [qPtr]/[q] tracking so it
+     survives this entire run unchanged. *)
+  small qPtr -> small (Z.of_nat (length q)) ->
+  pat_mem_matches m qPtr q ->
+  (qPtr + Z.of_nat (length q) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= qPtr) ->
   Nat.add i k = length p ->
   length table = i ->
   table_correct_below p table i ->
@@ -57,10 +65,14 @@ Theorem build_lps_run_bare : forall k hs s inst patPtr patLenN lpsPtr tmpN memad
     /\ table_correct_below p table' (length p)
     /\ lookup_N s'.(s_mems) memaddr = Some m'
     /\ lps_mem_matches m' lpsPtr table' (length p)
+    /\ pat_mem_matches m' patPtr p
+    /\ pat_mem_matches m' qPtr q
+    /\ operations.mem_length m' = operations.mem_length m
     /\ reduce_trans (hs, s, f, loop_entry_cfg f) (hs, s', f', [::]).
 Proof.
-  elim=> [| k' IH] hs s inst patPtr patLenN lpsPtr tmpN memaddr m p table i len
-    Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias
+  elim=> [| k' IH] hs s inst patPtr patLenN lpsPtr tmpN memaddr m p table i len qPtr q
+    Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat_m Hmemlps_m Hpmm Hnoalias
+    Hqp Hqlen Hqmm Hqnoalias
     Hik Htlen Htcb Hlmm Hilps Hlen_small Htp_small f.
   - (* k = 0: i = length p, the loop exits. *)
     have Hi_eq : i = length p by lia.
@@ -73,8 +85,11 @@ Proof.
     exists s, m, table, f.
     split; [rewrite -Hi_eq; exact Htlen |].
     split; [rewrite -Hi_eq; exact Htcb |].
-    split; [exact Hlkm |].
+    split; [assumption |].
     split; [rewrite -Hi_eq; exact Hlmm |].
+    split; [exact Hpmm |].
+    split; [exact Hqmm |].
+    split; [reflexivity |].
     exact Hred.
   - (* k = S k': process position i, then recurse at S i. *)
     have Hi_lt : Nat.lt i (length p) by lia.
@@ -84,9 +99,10 @@ Proof.
     have Hlt_i : Nat.lt len i by have [_ [? _]] := Hilps'; lia.
     have Htab_le : Nat.le i (length table) by lia.
     have Hlen_fuel : Nat.lt len (length p) by lia.
-    have [s'' [m'' [tmpN'' [Hlkm'' [Hlmm'' [HmemLen'' [Hpmm'' [Htp_small'' Hred'']]]]]]]] :=
-      build_lps_group_fuel_bare hs s inst patPtr patLenN lpsPtr memaddr m p table i
-        Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias
+    have [s'' [m'' [tmpN'' [Hlkm'' [Hlmm'' [HmemLen'' [Hpmm'' [Hqmm'' [Htp_small'' Hred'']]]]]]]]] :=
+      build_lps_group_fuel_bare hs s inst patPtr patLenN lpsPtr memaddr m p table i qPtr q
+        Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat_m Hmemlps_m Hpmm Hnoalias
+        Hqp Hqlen Hqmm Hqnoalias
         Hi_lt Htlen Htcb (length p) tmpN len Htp_small Hlen_fuel Hlt_i Hborder Hruled Hlmm.
     simpl in Hred''.
     set v := cand_fuel p table i (length p) len.
@@ -99,15 +115,18 @@ Proof.
     have Htlen' : length (table ++ [v]) = S i by rewrite List.length_app Htlen /=; lia.
     have Hik' : Nat.add (S i) k' = length p by lia.
     have Hmempat'' : N.le (Z.to_N (patPtr + Z.of_nat (length p))) (operations.mem_length m'').
-    { rewrite HmemLen''. exact Hmempat. }
+    { rewrite HmemLen''. exact Hmempat_m. }
     have Hmemlps'' : N.le (Z.to_N (lpsPtr + Z.of_nat (length p) * 4) + 4) (operations.mem_length m'').
-    { rewrite HmemLen''. exact Hmemlps. }
-    have HrIH := IH hs s'' inst patPtr patLenN lpsPtr tmpN'' memaddr m'' p (table ++ [v]) (S i) v
+    { rewrite HmemLen''. exact Hmemlps_m. }
+    have HrIH := IH hs s'' inst patPtr patLenN lpsPtr tmpN'' memaddr m'' p (table ++ [v]) (S i) v qPtr q
       Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm'' Hmempat'' Hmemlps'' Hpmm'' Hnoalias
+      Hqp Hqlen Hqmm'' Hqnoalias
       Hik' Htlen' Htcb' Hlmm'' (fun _ => Hcorrect) Hv_small Htp_small''.
-    move: HrIH => [s' [m' [table' [f' [Htlen'' [Htcb'' [Hlkm' [Hlmm' Hred']]]]]]]].
+    move: HrIH => [s' [m' [table' [f' [Htlen'' [Htcb'' [Hlkm' [Hlmm' [Hpmm' [Hqmm' [HmemLen''' Hred']]]]]]]]]]].
     exists s', m', table', f'.
     split; [exact Htlen'' |]. split; [exact Htcb'' |]. split; [exact Hlkm' |]. split; [exact Hlmm' |].
+    split; [exact Hpmm' |]. split; [exact Hqmm' |].
+    split; [rewrite HmemLen''' HmemLen''; reflexivity |].
     exact: (reduce_trans_trans _ _ _ Hred'' Hred').
 Qed.
 

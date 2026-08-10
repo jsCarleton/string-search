@@ -36,7 +36,7 @@ Lemma build_lps_func_defaults :
 Proof. vm_compute. reflexivity. Qed.
 
 Theorem kmp_search_call_build_lps : forall hs s inst f
-    (textPtr textLenN patPtr patLenN lpsPtr iN jN : Z) (p : list byte) (memaddr : N) (m : meminst)
+    (textPtr textLenN patPtr patLenN lpsPtr iN jN : Z) (txt p : list byte) (memaddr : N) (m : meminst)
     (build_lps_addr : funcaddr),
   f = Build_frame [VAL_num (VAL_int32 (enc textPtr)); VAL_num (VAL_int32 (enc textLenN));
                     VAL_num (VAL_int32 (enc patPtr)); VAL_num (VAL_int32 (enc patLenN));
@@ -58,17 +58,26 @@ Theorem kmp_search_call_build_lps : forall hs s inst f
   N.le (Z.to_N (lpsPtr + Z.of_nat (length p) * 4) + 4) (operations.mem_length m) ->
   pat_mem_matches m patPtr p ->
   (patPtr + Z.of_nat (length p) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= patPtr) ->
+  (* [txt]/[textPtr]: the search's own text buffer, disjoint from the
+     [lps] output array, which must survive this call unchanged. *)
+  small textPtr -> small (Z.of_nat (length txt)) ->
+  pat_mem_matches m textPtr txt ->
+  (textPtr + Z.of_nat (length txt) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= textPtr) ->
   exists s' m' table',
     is_failure_table p table'
     /\ lookup_N s'.(s_mems) memaddr = Some m'
     /\ lps_mem_matches m' lpsPtr table' (length p)
+    /\ pat_mem_matches m' patPtr p
+    /\ pat_mem_matches m' textPtr txt
+    /\ operations.mem_length m' = operations.mem_length m
     /\ reduce_trans (hs, s, f,
          [:: AI_basic (BI_local_get 2%N); AI_basic (BI_local_get 3%N); AI_basic (BI_local_get 4%N);
              AI_basic (BI_call 0%N)])
          (hs, s', f, [::]).
 Proof.
-  move=> hs s inst f textPtr textLenN patPtr patLenN lpsPtr iN jN p memaddr m build_lps_addr
-    Hf Hfunc Hclosure Hpp Hlp HpatLen Hnz Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias.
+  move=> hs s inst f textPtr textLenN patPtr patLenN lpsPtr iN jN txt p memaddr m build_lps_addr
+    Hf Hfunc Hclosure Hpp Hlp HpatLen Hnz Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias
+    Htp Htlen Htmt Htnoalias.
   have HA : reduce hs s f [:: AI_basic (BI_local_get 2%N)] hs s f [:: AI_basic (BI_const_num (VAL_int32 (enc patPtr)))].
   { apply r_local_get with (v := VAL_num (VAL_int32 (enc patPtr))) (j := 2%N). rewrite Hf. reflexivity. }
   have HA' := reduce_prefix _ _ _ _ _ _ _ _
@@ -135,10 +144,13 @@ Proof.
   have Hchain2 := reduce_trans_trans _ _ _ Hchain1 (reduce_trans_step _ _ _ _ _ _ _ _ HC').
   have Hchain3 := reduce_trans_trans _ _ _ Hchain2 (reduce_trans_step _ _ _ _ _ _ _ _ HD').
   have Hchain4 := reduce_trans_trans _ _ _ Hchain3 (reduce_trans_step _ _ _ _ _ _ _ _ HE0).
-  have Hrun := build_lps_correct hs s inst f patPtr patLenN lpsPtr memaddr m p
-    Hpp Hlp HpatLen Hnz Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias.
-  move: Hrun => [s' [m' [table' [Hift [Hlkm' [Hlmm' Hred']]]]]].
+  have Hrun := build_lps_correct hs s inst f patPtr patLenN lpsPtr memaddr m p textPtr txt
+    Hpp Hlp HpatLen Hnz Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias
+    Htp Htlen Htmt Htnoalias.
+  move: Hrun => [s' [m' [table' [Hift [Hlkm' [Hlmm' [Hpmm' [Htmt' [HmemLen' Hred']]]]]]]]].
   exists s', m', table'.
-  split; [exact Hift |]. split; [exact Hlkm' |]. split; [exact Hlmm' |].
+  split; [exact Hift |]. split; [exact Hlkm' |]. split; [exact Hlmm' |]. split; [exact Hpmm' |].
+  split; [exact Htmt' |].
+  split; [exact HmemLen' |].
   exact: (reduce_trans_trans _ _ _ Hchain4 Hred').
 Qed.

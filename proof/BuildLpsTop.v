@@ -26,7 +26,8 @@ Existing Instance Extraction_instance.host_instance.
 Open Scope N_scope.
 Open Scope Z_scope.
 
-Theorem build_lps_correct : forall hs s inst f0 patPtr patLenN lpsPtr memaddr m (p : list byte),
+Theorem build_lps_correct : forall hs s inst f0 patPtr patLenN lpsPtr memaddr m (p : list byte)
+    (qPtr : Z) (q : list byte),
   small patPtr -> small lpsPtr ->
   patLenN = Z.of_nat (length p) ->
   Nat.lt 0 (length p) ->
@@ -40,6 +41,13 @@ Theorem build_lps_correct : forall hs s inst f0 patPtr patLenN lpsPtr memaddr m 
   N.le (Z.to_N (lpsPtr + Z.of_nat (length p) * 4) + 4) (operations.mem_length m) ->
   pat_mem_matches m patPtr p ->
   (patPtr + Z.of_nat (length p) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= patPtr) ->
+  (* A second, caller-supplied buffer disjoint from the [lps] output
+     array -- e.g. [kmp_search]'s own [text] -- that survives the whole
+     call unchanged; see [BuildLpsInduction.v]'s [build_lps_group_fuel_bare]
+     for where this is actually tracked. *)
+  small qPtr -> small (Z.of_nat (length q)) ->
+  pat_mem_matches m qPtr q ->
+  (qPtr + Z.of_nat (length q) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= qPtr) ->
   let f_entry := Build_frame [VAL_num (VAL_int32 (enc patPtr)); VAL_num (VAL_int32 (enc patLenN));
                                VAL_num (VAL_int32 (enc lpsPtr)); VAL_num (VAL_int32 zero32);
                                VAL_num (VAL_int32 zero32); VAL_num (VAL_int32 zero32)] inst in
@@ -47,11 +55,15 @@ Theorem build_lps_correct : forall hs s inst f0 patPtr patLenN lpsPtr memaddr m 
     is_failure_table p table'
     /\ lookup_N s'.(s_mems) memaddr = Some m'
     /\ lps_mem_matches m' lpsPtr table' (length p)
+    /\ pat_mem_matches m' patPtr p
+    /\ pat_mem_matches m' qPtr q
+    /\ operations.mem_length m' = operations.mem_length m
     /\ reduce_trans (hs, s, f0, [:: AI_frame 0 f_entry [:: AI_label 0 [::] (to_e_list build_lps_body)]])
                      (hs, s', f0, [::]).
 Proof.
-  move=> hs s inst f0 patPtr patLenN lpsPtr memaddr m p
-    Hpp Hlp HpatLen Hnz Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias f_entry.
+  move=> hs s inst f0 patPtr patLenN lpsPtr memaddr m p qPtr q
+    Hpp Hlp HpatLen Hnz Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias
+    Hqp Hqlen Hqmm Hqnoalias f_entry.
   have HpatLen_small : small patLenN by rewrite HpatLen.
   have Hne : patLenN <> 0 by rewrite HpatLen; lia.
   (* Prologue: patLen <> 0, so the early-return check falls through. *)
@@ -126,6 +138,23 @@ Proof.
     rewrite (write_bytes_out (serialise_num (VAL_int32 zero32)) (meminst_data m) (Z.to_N lpsPtr)
       (meminst_data m1) (Z.to_N (patPtr + Z.of_nat j)) Hwr1 Hdisj).
     exact Hlk. }
+  have Hqmm1 : pat_mem_matches m1 qPtr q.
+  { move=> j c Hnth.
+    have Hlk := Hqmm j c Hnth.
+    have Hj_lt : Nat.lt j (length q) by apply /nth_error_Some; rewrite Hnth.
+    have Hj1 : (Z.to_N qPtr <= Z.to_N (qPtr + Z.of_nat j))%N.
+    { move: Hqp; rewrite /small; lia. }
+    have Hj2 : (Z.to_N (qPtr + Z.of_nat j) < Z.to_N qPtr + N.of_nat (length q))%N.
+    { move: Hqp Hqlen; rewrite /small; lia. }
+    have Hdisj0 : (Z.to_N (qPtr + Z.of_nat j) < Z.to_N lpsPtr \/ Z.to_N lpsPtr + N.of_nat 4 <= Z.to_N (qPtr + Z.of_nat j))%N.
+    { move: Hqp Hlp Hqlen Hj1 Hj2; rewrite /small; move=> Hqp0 Hlp0 Hqlen0 Hj1' Hj2'.
+      case: Hqnoalias => Hna; lia. }
+    have Hbslen : length (serialise_num (VAL_int32 zero32)) = 4%nat.
+    { rewrite /serialise_num /serialise_i32. apply: Memdata.encode_int_length. }
+    rewrite -Hbslen in Hdisj0.
+    rewrite (write_bytes_out (serialise_num (VAL_int32 zero32)) (meminst_data m) (Z.to_N lpsPtr)
+      (meminst_data m1) (Z.to_N (qPtr + Z.of_nat j)) Hwr1 Hdisj0).
+    exact Hlk. }
   have Htcb1 : table_correct_below p [:: 0%nat] 1.
   { move=> j k Hj Hnth.
     have Hj0 : j = 0%nat by lia.
@@ -135,11 +164,12 @@ Proof.
   have Hik1 : Nat.add 1 (Nat.sub (length p) 1) = length p by lia.
   have Hsmall0 : small (Z.of_nat 0) by rewrite /small; lia.
   have Hrun := build_lps_run_bare (Nat.sub (length p) 1) hs s1 inst patPtr patLenN lpsPtr 0 memaddr m1 p
-    [:: 0%nat] 1 0%nat
+    [:: 0%nat] 1 0%nat qPtr q
     Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm1 Hmempat1 Hmemlps1 Hpmm1 Hnoalias
+    Hqp Hqlen Hqmm1 Hqnoalias
     Hik1 erefl Htcb1 Hlmm1 Hilps1 Hsmall0 Hsmall0.
   simpl in Hrun.
-  move: Hrun => [s' [m' [table' [f' [Htlen' [Htcb' [Hlkm' [Hlmm' Hred']]]]]]]].
+  move: Hrun => [s' [m' [table' [f' [Htlen' [Htcb' [Hlkm' [Hlmm' [Hpmm' [Hqmm' [HmemLen1' Hred']]]]]]]]]]].
   have Hchain4 := reduce_trans_trans _ _ _ Hchain3 Hred'.
   (* [Hchain4] is the full unframed fact: entry frame's body reduces to
      [::]. Lift it through the function-body label, then the calling
@@ -162,5 +192,6 @@ Proof.
     { have := List.nth_error_Some table' j.
       rewrite Htlen'. move=> [Hn _]. apply Hn. rewrite Hnth. discriminate. }
     exact: (Htcb' j k Hj_lt Hnth). }
-  split; [exact Hlkm' |]. split; [exact Hlmm' |]. exact Hfinal'.
+  split; [exact Hlkm' |]. split; [exact Hlmm' |]. split; [exact Hpmm' |]. split; [exact Hqmm' |].
+  split; [rewrite HmemLen1' HmemLen1; reflexivity |]. exact Hfinal'.
 Qed.

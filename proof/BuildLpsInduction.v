@@ -29,7 +29,8 @@ Open Scope Z_scope.
     pattern-buffer/scratch-local bookkeeping -- is identical, since
     none of it touches the frame/label wrapping at all). *)
 Theorem build_lps_group_fuel_bare :
-  forall hs s inst patPtr patLenN lpsPtr memaddr m (p : list byte) (table : list nat) (i : nat),
+  forall hs s inst patPtr patLenN lpsPtr memaddr m (p : list byte) (table : list nat) (i : nat)
+    (qPtr : Z) (q : list byte),
   small patPtr -> small lpsPtr ->
   patLenN = Z.of_nat (length p) ->
   small (Z.of_nat (length p)) ->
@@ -42,6 +43,16 @@ Theorem build_lps_group_fuel_bare :
   N.le (Z.to_N (lpsPtr + Z.of_nat (length p) * 4) + 4) (operations.mem_length m) ->
   pat_mem_matches m patPtr p ->
   (patPtr + Z.of_nat (length p) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= patPtr) ->
+  (* [q]/[qPtr]: a second, caller-supplied buffer disjoint from the
+     [lps] output array -- e.g. [kmp_search]'s own [text] buffer, which
+     needs to survive the call into [build_lps] unchanged. Tracked with
+     the exact same technique as [pat_mem_matches m' patPtr p] above,
+     since [Hdisjoint_addr]'s reasoning never depended on *which*
+     buffer it was protecting, only on disjointness from the write
+     address. *)
+  small qPtr -> small (Z.of_nat (length q)) ->
+  pat_mem_matches m qPtr q ->
+  (qPtr + Z.of_nat (length q) <= lpsPtr \/ lpsPtr + Z.of_nat (length p) * 4 <= qPtr) ->
   Nat.lt i (length p) ->
   length table = i ->
   table_correct_below p table i ->
@@ -54,12 +65,14 @@ Theorem build_lps_group_fuel_bare :
       /\ lps_mem_matches m' lpsPtr (table ++ [cand_fuel p table i fuel len]) (S i)
       /\ operations.mem_length m' = operations.mem_length m
       /\ pat_mem_matches m' patPtr p
+      /\ pat_mem_matches m' qPtr q
       /\ small tmpN'
       /\ let f' := loop_frame inst patPtr patLenN lpsPtr (Z.of_nat (cand_fuel p table i fuel len)) (Z.of_nat (S i)) tmpN' in
          reduce_trans (hs, s, f, loop_entry_cfg f) (hs, s', f', loop_entry_cfg f').
 Proof.
-  move=> hs s inst patPtr patLenN lpsPtr memaddr m p table i
-    Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias Hilt Htlen Htcb.
+  move=> hs s inst patPtr patLenN lpsPtr memaddr m p table i qPtr q
+    Hpp Hlp HpatLen Hlenp Hlenp4 Hpatb Hlpsb Hmems Hlkm Hmempat Hmemlps Hpmm Hnoalias
+    Hqp Hqlen_small Hqmm Hqnoalias Hilt Htlen Htcb.
   have HpatLen_small : small patLenN by rewrite HpatLen.
   elim=> [| fuel' IH] tmpN len Hstp Hfuel Hlt Hborder Hruled Hlmm.
   - exfalso. lia.
@@ -105,6 +118,27 @@ Proof.
       rewrite -Hbslen in Hdisj.
       rewrite (write_bytes_out bs (meminst_data m) (Z.to_N (lpsPtr + Z.of_nat i * 4)) (meminst_data m') (Z.to_N (patPtr + Z.of_nat j)) Hwr Hdisj).
       exact Hlk. }
+    (* Same reasoning, for the second buffer [q]/[qPtr]. *)
+    have Hdisjoint_addr_q : forall j : N,
+      (Z.to_N qPtr <= j)%N -> (j < Z.to_N qPtr + N.of_nat (length q))%N ->
+      (j < Z.to_N (lpsPtr + Z.of_nat i * 4) \/ Z.to_N (lpsPtr + Z.of_nat i * 4) + N.of_nat 4 <= j)%N.
+    { move=> j Hj1 Hj2.
+      move: Hlp Hlenp Hqp Hqlen_small; rewrite /small; move=> Hlp0 Hlenp0 Hqp0 Hqlen0.
+      have HiZ : Z.of_nat i < Z.of_nat (length p) by lia.
+      case: Hqnoalias => Hna; lia. }
+    have Hqmm_preserved : forall m' bs, write_bytes (meminst_data m) (Z.to_N (lpsPtr + Z.of_nat i * 4)) bs = Some (meminst_data m') ->
+      length bs = 4%nat -> pat_mem_matches m' qPtr q.
+    { move=> m' bs Hwr Hbslen j c Hnth.
+      have Hlk := Hqmm j c Hnth.
+      have Hj_lt : Nat.lt j (length q) by apply /nth_error_Some; rewrite Hnth.
+      have Hj1 : (Z.to_N qPtr <= Z.to_N (qPtr + Z.of_nat j))%N.
+      { move: Hqp; rewrite /small; lia. }
+      have Hj2 : (Z.to_N (qPtr + Z.of_nat j) < Z.to_N qPtr + N.of_nat (length q))%N.
+      { move: Hqp Hqlen_small; rewrite /small; lia. }
+      have Hdisj := Hdisjoint_addr_q (Z.to_N (qPtr + Z.of_nat j)) Hj1 Hj2.
+      rewrite -Hbslen in Hdisj.
+      rewrite (write_bytes_out bs (meminst_data m) (Z.to_N (lpsPtr + Z.of_nat i * 4)) (meminst_data m') (Z.to_N (qPtr + Z.of_nat j)) Hwr Hdisj).
+      exact Hlk. }
     case: (byte_eq_dec cl ci) => Hcmp.
     + (* Match: [cl = ci], result is [S len]. *)
       subst cl.
@@ -118,6 +152,7 @@ Proof.
       have Hbslen : length (serialise_num (VAL_int32 (enc (Z.of_nat len + 1)))) = 4%nat.
       { rewrite /serialise_num /serialise_i32. apply: Memdata.encode_int_length. }
       have Hpmm' := Hpmm_preserved m' _ Hwr' Hbslen.
+      have Hqmm' := Hqmm_preserved m' _ Hwr' Hbslen.
       exists s', m', tmpN.
       split; [exact Hlkm' |].
       split.
@@ -133,6 +168,7 @@ Proof.
         move=> j Hj. move: Hlpsb Hlp; rewrite /small; lia.
       * split; [exact HmemLen |].
         split; [exact Hpmm' |].
+        split; [exact Hqmm' |].
         split; [exact Hstp |].
         simpl.
         have -> : Z.pos (Pos.of_succ_nat len) = Z.of_nat len + 1 by lia.
@@ -159,6 +195,7 @@ Proof.
         have Hbslen : length (serialise_num (VAL_int32 zero32)) = 4%nat.
         { rewrite /serialise_num /serialise_i32. apply: Memdata.encode_int_length. }
         have Hpmm' := Hpmm_preserved m' _ Hwr' Hbslen.
+        have Hqmm' := Hqmm_preserved m' _ Hwr' Hbslen.
         exists s', m', tmpN.
         split; [exact Hlkm' |].
         split.
@@ -174,6 +211,7 @@ Proof.
           move=> j Hj. move: Hlpsb Hlp; rewrite /small; lia. }
         { split; [exact HmemLen |].
           split; [exact Hpmm' |].
+          split; [exact Hqmm' |].
           split; [exact Hstp |].
           simpl.
           have -> : Z.pos (Pos.of_succ_nat i) = Z.of_nat i + 1 by lia.
@@ -229,11 +267,11 @@ Proof.
           HSlen'_ge1 Hlen'_small Hlen'4_small HlpsLen'4_small Hv_small
           Hmems Hlkm Hmem_ci HpatI_bound Hmem_cl HpatLenIdx_bound Hlmm_v' HlpsLen'4_bound.
         have HrIH := IH (Z.of_nat v) v Hv_small (ltac:(lia)) (ltac:(lia)) Hborder_new Hruled_new Hlmm.
-        move: HrIH => [s'' [m'' [tmpN'' [Hlkm'' [Hlmm'' [HmemLen'' [Hpmm'' [Hstp'' Hred'']]]]]]]].
+        move: HrIH => [s'' [m'' [tmpN'' [Hlkm'' [Hlmm'' [HmemLen'' [Hpmm'' [Hqmm'' [Hstp'' Hred'']]]]]]]]].
         exists s'', m'', tmpN''.
         rewrite Hvdef.
         split; [exact Hlkm'' |]. split; [exact Hlmm'' |]. split; [exact HmemLen'' |]. split; [exact Hpmm'' |].
-        split; [exact Hstp'' |].
+        split; [exact Hqmm'' |]. split; [exact Hstp'' |].
         exact: (reduce_trans_trans _ _ _ Hback Hred'').
 Qed.
 
