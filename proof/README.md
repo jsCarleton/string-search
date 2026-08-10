@@ -21,7 +21,11 @@ coqc KMPBytes.v && coqc CoreLemmas.v && coqc KMPSpec.v && coqc KMPFailureRec.v &
   coqc MemLemmas.v && coqc BuildLps.v && coqc BuildLpsLoop.v && \
   coqc Int32Facts.v && coqc BuildLpsExit.v && coqc BuildLpsCmp.v && coqc BuildLpsMatch.v && \
   coqc BuildLpsMismatch.v && coqc BuildLpsIterate.v && coqc BuildLpsMemTable.v && \
-  coqc BuildLpsInduction.v && coqc BuildLpsInit.v && coqc BuildLpsRun.v && coqc BuildLpsTop.v
+  coqc BuildLpsInduction.v && coqc BuildLpsInit.v && coqc BuildLpsRun.v && coqc BuildLpsTop.v && \
+  coqc KMPSearch.v && coqc KMPSearchLoop.v && coqc KMPSearchExit.v && coqc KMPSearchCmp.v && \
+  coqc KMPSearchMatch.v && coqc KMPSearchMismatch.v && coqc KMPSearchIterate.v && \
+  coqc KMPSearchRec.v && coqc KMPSearchMatchReturn.v && coqc KMPSearchInduction.v && \
+  coqc KMPSearchInit.v && coqc KMPSearchRun.v && coqc KMPSearchCall.v && coqc KMPSearchTop.v
 ```
 
 ## The plan
@@ -252,11 +256,70 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
        correctness theorem, not one that assumes away the calling
        convention.
 
-5. **`kmp_search` loop correctness** *(planned)* — same shape, against
-   `is_first_occurrence` / `does_not_occur`, additionally reasoning
-   through `kmp_search`'s internal call into `build_lps` (step 4 as a
-   lemma) and a KMP potential-function argument (`2*i - j` strictly
-   increases every step) for termination.
+5. **`kmp_search` loop correctness** *(done)* — same overall shape as
+   step 4, against `KMPSpec.v`'s `is_first_occurrence` / `does_not_occur`,
+   additionally reasoning through `kmp_search`'s internal call into
+   `build_lps` (step 4's `build_lps_correct` as a lemma). Rather than a
+   potential-function termination argument, the induction is driven by
+   an explicit *fuel* parameter counting down remaining text positions
+   (mirroring step 4b's `build_lps_group_fuel`/`build_lps_run_bare`
+   structure) — simpler to formalize and just as conclusive, since the
+   fuel is instantiated with `length txt - i` at the top level, so it's
+   not an independent assumption.
+
+   `KMPSearchRec.v` states the two-locals loop invariant in pure math
+   (`search_matches`/`search_no_occ_before`, `i`/`j` such that no earlier
+   position could have matched) and proves it's preserved by every
+   transition the loop can take. `KMPSearch.v` proves the prologue
+   (`patLen = 0` returns `0` immediately, matching
+   `is_first_occurrence_empty`'s convention) and anchors the body via
+   `vm_compute`, as in step 4. `KMPSearchLoop.v`/`KMPSearchExit.v`/
+   `KMPSearchCmp.v`/`KMPSearchMatch.v`/`KMPSearchMismatch.v`/
+   `KMPSearchIterate.v` mirror the corresponding `BuildLps*.v` files
+   instruction-for-instruction, adjusted for `kmp_search`'s two-pointer
+   comparison (`text[i]` vs `pat[j]`) and its two independent backtrack
+   targets (`j := table[j-1]` on mismatch with `j > 0`, `i++` on
+   mismatch with `j = 0`). `KMPSearchMatchReturn.v` proves the one case
+   `build_lps` never has: a full match (`j` reaches `length pat`)
+   returns immediately from *inside* the loop, which needed its own
+   5-level `lholed` witness for `rs_return` (one label deeper than any
+   return site in step 4, since `kmp_search`'s loop nests one `if` more
+   than `build_lps`'s) and, once threading the outer induction exposed
+   it, a fix to include the trailing `[i32.const -1]` fallback that sits
+   in the *same* function-body label as the returning `block` per the
+   real calling convention. `KMPSearchInduction.v`'s
+   `kmp_search_group_fuel` is the per-position induction (mirroring
+   `BuildLpsInduction.v`'s `build_lps_group_fuel`): match/return,
+   mismatch/backtrack (zero or more times) then either match or
+   fall through to the next position, or run out of pattern to compare
+   entirely. `KMPSearchInit.v` proves the `patLen <> 0` prologue case
+   and the (trivial, both-zero) `i := 0; j := 0` init. `KMPSearchRun.v`'s
+   `kmp_search_run` is the outer fuel-bounded induction over text
+   positions, chaining `kmp_search_group_fuel` calls through to
+   `kmp_search_exit_bare` (once `i` reaches `length txt`) — the
+   `kmp_search` analogue of `BuildLpsRun.v`.
+
+   Closing this off needed one more piece of plumbing `build_lps` never
+   had to think about: `kmp_search`'s own loop reads *both* `text[i]`
+   and `pat[j]`, but `build_lps_correct`'s conclusion (as it stood after
+   step 4) only guaranteed the *pattern* buffer survived the call
+   unchanged, since `build_lps` itself never touches a second buffer.
+   `KMPSearchCall.v`'s `kmp_search_call_build_lps` needs `build_lps`'s
+   call to also leave `kmp_search`'s `text` buffer untouched — so
+   `BuildLpsInduction.v`/`BuildLpsRun.v`/`BuildLpsTop.v`'s internal
+   memory-preservation tracking (already computed at each loop step
+   but never exposed in `build_lps_run_bare`'s or `build_lps_correct`'s
+   own conclusions) was generalized to a second, caller-supplied
+   disjoint buffer (reusing the existing non-aliasing machinery
+   unchanged) and to explicit `operations.mem_length` preservation,
+   then symmetrically applied to `build_lps`'s own pattern buffer for
+   the same reason. `KMPSearchTop.v` assembles everything — prologue,
+   the call into `build_lps`, init, loop entry, and the whole loop —
+   into `kmp_search_correct_nonempty` (stated directly against the real
+   `r_invoke_native` call shape, as in step 4b's `build_lps_correct`),
+   then combines it with the already-proven empty-pattern early return
+   into `kmp_search_correct`: the fully general, real-call-shaped
+   top-level theorem for `kmp_search`, covering every pattern.
 
 6. **Real instantiation** *(planned)* — use WasmCert-Coq's
    `interp_instantiate_sound` to connect the parsed module (step 1) to
@@ -266,16 +329,16 @@ compiles clean (`coqc` exit 0) with **zero `Admitted`/`admit`**:
    layout / non-aliasing) are documented at the theorem, not hidden.
    (The label-depth seam noted under `BuildLpsInit.v` above — connecting
    `r_invoke_native`'s real calling convention to the loop-level
-   reasoning — is already closed, for `build_lps`, by `BuildLpsTop.v`;
-   what's left here is the analogous instantiation step for the whole
-   module/store, plus the same connection for `kmp_search` once step 5
-   is done.)
+   reasoning — is already closed for both `build_lps` (`BuildLpsTop.v`)
+   and `kmp_search` (`KMPSearchTop.v`); what's left here is the
+   analogous instantiation step for the whole module/store.)
 
-Steps 5–6 are the bulk of the remaining work: each loop iteration
-unfolds through roughly 15–20 chained instruction-level reduction steps
-(locals get/set, i32 binops/relops with explicit range side-conditions
-for wraparound semantics, byte-level load/store), which then feed a
-loop-invariant induction.
+Step 6 is the only remaining work: connecting `kmp_search_correct` and
+`build_lps_correct`, both already stated against the real
+`r_invoke_native` call shape, to an actual instantiated module/store
+via `interp_instantiate_sound`, so the final theorem is about invoking
+the real exported `kmp_search` function rather than an assumed
+environment.
 
 ## Status
 
@@ -299,8 +362,21 @@ loop-invariant induction.
 | `BuildLpsInit.v`: prologue `patLen<>0` case + 7-instr init sequence, unchained (step 4b) | done |
 | `BuildLpsRun.v`: outer induction over `i`, `is_failure_table` (step 4b) | done |
 | `BuildLpsTop.v`: `build_lps_correct`, real call-shaped top-level theorem (step 4b) | done |
-| `kmp_search` correctness | not started |
-| Real instantiation / top-level theorem | not started |
+| `KMPSearchRec.v`: `kmp_search` loop invariant, in pure math (step 5) | done |
+| `KMPSearch.v`: prologue / early return (step 5) | done |
+| `KMPSearchLoop.v`: loop instruction shape, ground truth (step 5) | done |
+| `KMPSearchExit.v`: loop entry + exit path (step 5) | done |
+| `KMPSearchCmp.v`: load text[i]/pat[j] + compare (step 5) | done |
+| `KMPSearchMatch.v`: match branch (step 5) | done |
+| `KMPSearchMismatch.v`: mismatch branch (backtrack / advance) (step 5) | done |
+| `KMPSearchIterate.v`: loop continuation, per-outcome iterate theorems (step 5) | done |
+| `KMPSearchMatchReturn.v`: full-match early return | done |
+| `KMPSearchInduction.v`: `kmp_search_group_fuel`, per-position induction (step 5) | done |
+| `KMPSearchInit.v`: prologue `patLen<>0` case + init sequence (step 5) | done |
+| `KMPSearchRun.v`: outer induction over text positions (step 5) | done |
+| `KMPSearchCall.v`: the call into `build_lps` (step 5) | done |
+| `KMPSearchTop.v`: `kmp_search_correct`, real call-shaped top-level theorem (step 5) | done |
+| Real instantiation / top-level theorem (step 6) | not started |
 
 ## Why this scope
 
